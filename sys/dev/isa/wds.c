@@ -1,4 +1,4 @@
-/*	$OpenBSD: wds.c,v 1.50 2020/07/04 18:50:55 krw Exp $	*/
+/*	$OpenBSD: wds.c,v 1.55 2020/07/22 13:16:04 krw Exp $	*/
 /*	$NetBSD: wds.c,v 1.13 1996/11/03 16:20:31 mycroft Exp $	*/
 
 #undef	WDSDIAG
@@ -117,7 +117,6 @@ struct wds_softc {
 	TAILQ_HEAD(, wds_scb) sc_free_scb, sc_waiting_scb;
 	int sc_numscbs, sc_mbofull;
 	int sc_scsi_dev;
-	struct scsi_link sc_link;	/* prototype for subdevs */
 
 	struct mutex		sc_scb_mtx;
 	struct scsi_iopool	sc_iopool;
@@ -284,23 +283,18 @@ wdsattach(struct device *parent, struct device *self, void *aux)
 	sc->sc_ih = isa_intr_establish(ia->ia_ic, sc->sc_irq, IST_EDGE,
 	    IPL_BIO, wdsintr, sc, sc->sc_dev.dv_xname);
 
-	/*
-	 * fill in the prototype scsi_link.
-	 */
-	sc->sc_link.adapter_softc = sc;
-	sc->sc_link.adapter_target = sc->sc_scsi_dev;
-	sc->sc_link.adapter = &wds_switch;
 	/* XXX */
 	/* I don't think the -ASE can handle openings > 1. */
 	/* It gives Vendor Error 26 whenever I try it.     */
-	sc->sc_link.openings = 1;
-	sc->sc_link.pool = &sc->sc_iopool;
+	saa.saa_adapter_softc = sc;
+	saa.saa_adapter_target = sc->sc_scsi_dev;
+	saa.saa_adapter = &wds_switch;
+	saa.saa_luns = saa.saa_adapter_buswidth = 8;
+	saa.saa_openings = 1;
+	saa.saa_pool = &sc->sc_iopool;
+	saa.saa_quirks = saa.saa_flags = 0;
+	saa.saa_wwpn = saa.saa_wwnn = 0;
 
-	saa.saa_sc_link = &sc->sc_link;
-
-	/*
-	 * ask the adapter what subunits are present
-	 */
 	config_found(self, &saa, wdsprint);
 }
 
@@ -874,7 +868,7 @@ void
 wds_scsi_cmd(struct scsi_xfer *xs)
 {
 	struct scsi_link *sc_link = xs->sc_link;
-	struct wds_softc *sc = sc_link->adapter_softc;
+	struct wds_softc *sc = sc_link->bus->sb_adapter_softc;
 	bus_space_tag_t iot = sc->sc_iot;
 	bus_space_handle_t ioh = sc->sc_ioh;
 	struct wds_scb *scb;
@@ -1153,7 +1147,7 @@ wds_timeout(void *arg)
 	s = splbio();
 	xs = scb->xs;
 	sc_link = xs->sc_link;
-	sc = sc_link->adapter_softc;
+	sc = sc_link->bus->sb_adapter_softc;
 
 	sc_print_addr(sc_link);
 	printf("timed out");

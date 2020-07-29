@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_mpw.c,v 1.56 2020/06/17 06:45:22 dlg Exp $ */
+/*	$OpenBSD: if_mpw.c,v 1.58 2020/07/10 13:26:41 patrick Exp $ */
 
 /*
  * Copyright (c) 2015 Rafael Zalamena <rzalamena@openbsd.org>
@@ -111,7 +111,7 @@ mpw_clone_create(struct if_clone *ifc, int unit)
 	ifp->if_output = mpw_output;
 	ifp->if_start = mpw_start;
 	ifp->if_hardmtu = ETHER_MAX_HARDMTU_LEN;
-	IFQ_SET_MAXLEN(&ifp->if_snd, IFQ_MAXLEN);
+	ifq_set_maxlen(&ifp->if_snd, IFQ_MAXLEN);
 	ether_fakeaddr(ifp);
 
 	sc->sc_dead = 0;
@@ -653,19 +653,19 @@ mpw_start(struct ifnet *ifp)
 	n = sc->sc_neighbor;
 	if (!ISSET(ifp->if_flags, IFF_RUNNING) ||
 	    n == NULL) {
-		IFQ_PURGE(&ifp->if_snd);
+		ifq_purge(&ifp->if_snd);
 		return;
 	}
 
 	rt = rtalloc(sstosa(&n->n_nexthop), RT_RESOLVE, sc->sc_rdomain);
 	if (!rtisvalid(rt)) {
-		IFQ_PURGE(&ifp->if_snd);
+		ifq_purge(&ifp->if_snd);
 		goto rtfree;
 	}
 
 	ifp0 = if_get(rt->rt_ifidx);
 	if (ifp0 == NULL) {
-		IFQ_PURGE(&ifp->if_snd);
+		ifq_purge(&ifp->if_snd);
 		goto rtfree;
 	}
 

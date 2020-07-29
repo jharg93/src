@@ -1,4 +1,4 @@
-/*	$OpenBSD: vscsi.c,v 1.52 2020/06/27 17:28:58 krw Exp $ */
+/*	$OpenBSD: vscsi.c,v 1.56 2020/07/22 13:16:04 krw Exp $ */
 
 /*
  * Copyright (c) 2008 David Gwynne <dlg@openbsd.org>
@@ -56,7 +56,6 @@ enum vscsi_state {
 
 struct vscsi_softc {
 	struct device		sc_dev;
-	struct scsi_link	sc_link;
 	struct scsibus_softc	*sc_scsibus;
 
 	struct mutex		sc_state_mtx;
@@ -145,14 +144,15 @@ vscsi_attach(struct device *parent, struct device *self, void *aux)
 	rw_init(&sc->sc_ioc_lock, "vscsiioc");
 	scsi_iopool_init(&sc->sc_iopool, sc, vscsi_ccb_get, vscsi_ccb_put);
 
-	sc->sc_link.adapter = &vscsi_switch;
-	sc->sc_link.adapter_softc = sc;
-	sc->sc_link.adapter_target = SDEV_NO_ADAPTER_TARGET;
-	sc->sc_link.adapter_buswidth = 256;
-	sc->sc_link.openings = 16;
-	sc->sc_link.pool = &sc->sc_iopool;
-
-	saa.saa_sc_link = &sc->sc_link;
+	saa.saa_adapter = &vscsi_switch;
+	saa.saa_adapter_softc = sc;
+	saa.saa_adapter_target = SDEV_NO_ADAPTER_TARGET;
+	saa.saa_adapter_buswidth = 256;
+	saa.saa_luns = 8;
+	saa.saa_openings = 16;
+	saa.saa_pool = &sc->sc_iopool;
+	saa.saa_quirks = saa.saa_flags = 0;
+	saa.saa_wwpn = saa.saa_wwnn = 0;
 
 	sc->sc_scsibus = (struct scsibus_softc *)config_found(&sc->sc_dev,
 	    &saa, scsiprint);
@@ -162,7 +162,7 @@ void
 vscsi_cmd(struct scsi_xfer *xs)
 {
 	struct scsi_link		*link = xs->sc_link;
-	struct vscsi_softc		*sc = link->adapter_softc;
+	struct vscsi_softc		*sc = link->bus->sb_adapter_softc;
 	struct vscsi_ccb		*ccb = xs->io;
 	int				polled = ISSET(xs->flags, SCSI_POLL);
 	int				running = 0;
@@ -219,7 +219,7 @@ vscsi_done(struct vscsi_softc *sc, struct vscsi_ccb *ccb)
 int
 vscsi_probe(struct scsi_link *link)
 {
-	struct vscsi_softc		*sc = link->adapter_softc;
+	struct vscsi_softc		*sc = link->bus->sb_adapter_softc;
 	int				rv = 0;
 
 	mtx_enter(&sc->sc_state_mtx);
@@ -235,7 +235,7 @@ vscsi_probe(struct scsi_link *link)
 void
 vscsi_free(struct scsi_link *link)
 {
-	struct vscsi_softc		*sc = link->adapter_softc;
+	struct vscsi_softc		*sc = link->bus->sb_adapter_softc;
 
 	mtx_enter(&sc->sc_state_mtx);
 	sc->sc_ref_count--;

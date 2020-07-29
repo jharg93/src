@@ -1,4 +1,4 @@
-/*	$OpenBSD: ciss.c,v 1.83 2020/06/27 14:29:45 krw Exp $	*/
+/*	$OpenBSD: ciss.c,v 1.88 2020/07/24 12:43:31 krw Exp $	*/
 
 /*
  * Copyright (c) 2005,2006 Michael Shalayeff
@@ -353,14 +353,16 @@ ciss_attach(struct ciss_softc *sc)
 
 	sc->sc_flush = CISS_FLUSH_ENABLE;
 
-	sc->sc_link.adapter_softc = sc;
-	sc->sc_link.openings = sc->maxcmd;
-	sc->sc_link.adapter = &ciss_switch;
-	sc->sc_link.luns = 1;
-	sc->sc_link.adapter_target = SDEV_NO_ADAPTER_TARGET;
-	sc->sc_link.adapter_buswidth = sc->maxunits;
-	sc->sc_link.pool = &sc->sc_iopool;
-	saa.saa_sc_link = &sc->sc_link;
+	saa.saa_adapter_softc = sc;
+	saa.saa_adapter = &ciss_switch;
+	saa.saa_luns = 1;
+	saa.saa_adapter_target = SDEV_NO_ADAPTER_TARGET;
+	saa.saa_adapter_buswidth = sc->maxunits;
+	saa.saa_openings = sc->maxcmd;
+	saa.saa_pool = &sc->sc_iopool;
+	saa.saa_quirks = saa.saa_flags = 0;
+	saa.saa_wwpn = saa.saa_wwnn = 0;
+
 	scsibus = (struct scsibus_softc *)config_found_sm(&sc->sc_dev,
 	    &saa, scsiprint, NULL);
 
@@ -466,7 +468,7 @@ ciss_cmd(struct ciss_ccb *ccb, int flags, int wait)
 		cmd->sgin = dmap->dm_nsegs;
 
 		sgd = dmap->dm_segs;
-		CISS_DPRINTF(CISS_D_DMA, ("data=%p/%u<0x%lx/%u",
+		CISS_DPRINTF(CISS_D_DMA, ("data=%p/%zu<0x%lx/%lu",
 		    ccb->ccb_data, ccb->ccb_len, sgd->ds_addr, sgd->ds_len));
 
 		for (i = 0; i < dmap->dm_nsegs; sgd++, i++) {
@@ -477,7 +479,7 @@ ciss_cmd(struct ciss_ccb *ccb, int flags, int wait)
 			cmd->sgl[i].flags = htole32(0);
 			if (i)
 				CISS_DPRINTF(CISS_D_DMA,
-				    (",0x%lx/%u", sgd->ds_addr, sgd->ds_len));
+				    (",0x%lx/%lu", sgd->ds_addr, sgd->ds_len));
 		}
 
 		CISS_DPRINTF(CISS_D_DMA, ("> "));
@@ -949,7 +951,7 @@ int
 ciss_scsi_ioctl(struct scsi_link *link, u_long cmd, caddr_t addr, int flag)
 {
 #if NBIO > 0
-	return ciss_ioctl(link->adapter_softc, cmd, addr);
+	return ciss_ioctl(link->bus->sb_adapter_softc, cmd, addr);
 #else
 	return ENOTTY;
 #endif

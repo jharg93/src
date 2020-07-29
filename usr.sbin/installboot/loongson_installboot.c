@@ -1,4 +1,4 @@
-/*	$OpenBSD: loongson_installboot.c,v 1.1 2020/06/27 15:35:29 deraadt Exp $	*/
+/*	$OpenBSD: loongson_installboot.c,v 1.3 2020/07/19 15:23:08 visa Exp $	*/
 /*	$NetBSD: installboot.c,v 1.5 1995/11/17 23:23:50 gwr Exp $ */
 
 /*
@@ -154,7 +154,7 @@ write_filesystem(struct disklabel *dl, char part)
 			}
 			rslt = mount(MOUNT_EXT2FS, dst, 0, &args);
 			if (rslt == -1) {
-				warn("unable to mount EFI System partition");
+				warn("unable to mount ext2fs partition");
 				goto rmdir;
 			}
 		}
@@ -163,7 +163,7 @@ write_filesystem(struct disklabel *dl, char part)
 	/* Create "/boot" directory in <duid>.<part>. */
 	if (strlcat(dst, "/boot", sizeof(dst)) >= sizeof(dst)) {
 		rslt = -1;
-		warn("unable to build /efi directory");
+		warn("unable to build /boot directory");
 		goto umount;
 	}
 	rslt = mkdir(dst, 0755);

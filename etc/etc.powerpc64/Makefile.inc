@@ -1,5 +1,8 @@
-#	$OpenBSD: Makefile.inc,v 1.2 2020/07/05 21:57:23 kettenis Exp $
+#	$OpenBSD: Makefile.inc,v 1.4 2020/07/22 14:06:08 deraadt Exp $
+
+KERNELS += GENERIC.MP bsd.mp
 
 bootblocks:
+	cp -p ${DESTDIR}/usr/mdec/boot ${RELEASEDIR}
 
-MDEXT=	bsd.rd miniroot${OSrev}.img
+MDEXT=	boot bsd.rd miniroot${OSrev}.img

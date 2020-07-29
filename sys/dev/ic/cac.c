@@ -1,4 +1,4 @@
-/*	$OpenBSD: cac.c,v 1.61 2020/06/27 14:29:45 krw Exp $	*/
+/*	$OpenBSD: cac.c,v 1.67 2020/07/28 22:26:32 krw Exp $	*/
 /*	$NetBSD: cac.c,v 1.15 2000/11/08 19:20:35 ad Exp $	*/
 
 /*
@@ -236,18 +236,20 @@ cac_init(struct cac_softc *sc, int startfw)
 		return (-1);
 	}
 
-	sc->sc_link.adapter_softc = sc;
-	sc->sc_link.adapter = &cac_switch;
-	sc->sc_link.adapter_target = SDEV_NO_ADAPTER_TARGET;
-	sc->sc_link.adapter_buswidth = cinfo.num_drvs;
-	sc->sc_link.openings = CAC_MAX_CCBS / sc->sc_nunits;
-	if (sc->sc_link.openings < 4 )
-		sc->sc_link.openings = 4;
-	sc->sc_link.pool = &sc->sc_iopool;
+	saa.saa_adapter_softc = sc;
+	saa.saa_adapter = &cac_switch;
+	saa.saa_adapter_target = SDEV_NO_ADAPTER_TARGET;
+	saa.saa_adapter_buswidth = cinfo.num_drvs;
+	saa.saa_luns = 8;
+	saa.saa_openings = CAC_MAX_CCBS / sc->sc_nunits;
+	if (saa.saa_openings < 4 )
+		saa.saa_openings = 4;
+	saa.saa_pool = &sc->sc_iopool;
+	saa.saa_quirks = saa.saa_flags = 0;
+	saa.saa_wwpn = saa.saa_wwnn = 0;
 
-	saa.saa_sc_link = &sc->sc_link;
-
-	config_found(&sc->sc_dv, &saa, scsiprint);
+	sc->sc_scsibus = (struct scsibus_softc *)config_found(&sc->sc_dv, &saa,
+	    scsiprint);
 
 	(*sc->sc_cl->cl_intr_enable)(sc, 1);
 
@@ -580,7 +582,7 @@ cac_scsi_cmd(xs)
 	struct scsi_xfer *xs;
 {
 	struct scsi_link *link = xs->sc_link;
-	struct cac_softc *sc = link->adapter_softc;
+	struct cac_softc *sc = link->bus->sb_adapter_softc;
 	struct cac_drive_info *dinfo;
 	struct scsi_inquiry_data inq;
 	struct scsi_sense_data sd;
@@ -720,8 +722,9 @@ cac_scsi_cmd(xs)
 		return;
 
 	default:
-		SC_DEBUG(link, SDEV_DB1, ("unsupported scsi command %#x "
-		    "tgt %d ", xs->cmd->opcode, target));
+#ifdef CAC_DEBUG
+		printf("unsupported scsi command %#x tgt %d ", xs->cmd->opcode, target);
+#endif
 		xs->error = XS_DRIVER_STUFFUP;
 	}
 
@@ -744,7 +747,7 @@ void
 cac_l0_submit(struct cac_softc *sc, struct cac_ccb *ccb)
 {
 #ifdef CAC_DEBUG
-	printf("submit-%x ", ccb->ccb_paddr);
+	printf("submit-%lx ", ccb->ccb_paddr);
 #endif
 	bus_dmamap_sync(sc->sc_dmat, sc->sc_dmamap, 0,
 	    sc->sc_dmamap->dm_mapsize,
@@ -762,7 +765,7 @@ cac_l0_completed(sc)
 	if (!(off = cac_inl(sc, CAC_REG_DONE_FIFO)))
 		return NULL;
 #ifdef CAC_DEBUG
-	printf("compl-%x ", off);
+	printf("compl-%lx ", off);
 #endif
 	orig_off = off;
 
@@ -892,7 +895,7 @@ cac_create_sensors(struct cac_softc *sc)
 
 		/* check if this is the scsibus for the logical disks */
 		ssc = (struct scsibus_softc *)dev;
-		if (ssc->adapter_link == &sc->sc_link)
+		if (ssc == sc->sc_scsibus)
 			break;
 		ssc = NULL;
 	}

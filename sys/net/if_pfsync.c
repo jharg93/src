@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_pfsync.c,v 1.272 2020/06/28 06:40:14 sashan Exp $	*/
+/*	$OpenBSD: if_pfsync.c,v 1.274 2020/07/10 13:26:42 patrick Exp $	*/
 
 /*
  * Copyright (c) 2002 Michael Shalayeff
@@ -341,7 +341,7 @@ pfsync_clone_create(struct if_clone *ifc, int unit)
 	ifp->if_output = pfsyncoutput;
 	ifp->if_start = pfsyncstart;
 	ifp->if_type = IFT_PFSYNC;
-	IFQ_SET_MAXLEN(&ifp->if_snd, IFQ_MAXLEN);
+	ifq_set_maxlen(&ifp->if_snd, IFQ_MAXLEN);
 	ifp->if_hdrlen = sizeof(struct pfsync_header);
 	ifp->if_mtu = ETHERMTU;
 	ifp->if_xflags = IFXF_CLONED;
@@ -418,7 +418,7 @@ pfsync_clone_destroy(struct ifnet *ifp)
 void
 pfsyncstart(struct ifnet *ifp)
 {
-	IFQ_PURGE(&ifp->if_snd);
+	ifq_purge(&ifp->if_snd);
 }
 
 void

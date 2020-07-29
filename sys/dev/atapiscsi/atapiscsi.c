@@ -1,4 +1,4 @@
-/*      $OpenBSD: atapiscsi.c,v 1.112 2020/07/02 21:59:34 krw Exp $     */
+/*      $OpenBSD: atapiscsi.c,v 1.116 2020/07/22 13:16:04 krw Exp $     */
 
 /*
  * This code is derived from code with the copyright below.
@@ -147,7 +147,6 @@ enum atapi_state { as_none, as_data, as_completed };
 
 struct atapiscsi_softc {
 	struct device  sc_dev;
-	struct  scsi_link  sc_adapterlink;
 	struct channel_softc *chp;
 	enum atapi_state protocol_phase;
 
@@ -251,16 +250,17 @@ atapiscsi_attach(struct device *parent, struct device *self, void *aux)
 	WDCDEBUG_PRINT(("driver caps %04x\n", drvp->atapi_cap),
 	    DEBUG_PROBE);
 
-	as->sc_adapterlink.adapter_softc = as;
-	as->sc_adapterlink.adapter_target = SDEV_NO_ADAPTER_TARGET;
-	as->sc_adapterlink.adapter_buswidth = 2;
-	as->sc_adapterlink.adapter = &atapiscsi_switch;
-	as->sc_adapterlink.luns = 1;
-	as->sc_adapterlink.openings = 1;
-	as->sc_adapterlink.flags = SDEV_ATAPI;
-	as->sc_adapterlink.pool = &wdc_xfer_iopool;
 
-	saa.saa_sc_link = &as->sc_adapterlink;
+	saa.saa_adapter_softc = as;
+	saa.saa_adapter_target = SDEV_NO_ADAPTER_TARGET;
+	saa.saa_adapter_buswidth = 2;
+	saa.saa_adapter = &atapiscsi_switch;
+	saa.saa_luns = 1;
+	saa.saa_openings = 1;
+	saa.saa_flags = SDEV_ATAPI;
+	saa.saa_pool = &wdc_xfer_iopool;
+	saa.saa_quirks = 0;
+	saa.saa_wwpn = saa.saa_wwnn = 0;
 
 	child = config_found((struct device *)as, &saa, scsiprint);
 
@@ -318,7 +318,7 @@ atapiscsi_detach(struct device *dev, int flags)
 void
 wdc_atapi_send_cmd(struct scsi_xfer *sc_xfer)
 {
-	struct atapiscsi_softc *as = sc_xfer->sc_link->adapter_softc;
+	struct atapiscsi_softc *as = sc_xfer->sc_link->bus->sb_adapter_softc;
  	struct channel_softc *chp = as->chp;
 	struct ata_drive_datas *drvp = &chp->ch_drive[as->drive];
 	struct wdc_xfer *xfer;
@@ -421,7 +421,7 @@ wdc_atapi_send_cmd(struct scsi_xfer *sc_xfer)
 int
 wdc_atapi_ioctl (struct scsi_link *sc_link, u_long cmd, caddr_t addr, int flag)
 {
-	struct atapiscsi_softc *as = sc_link->adapter_softc;
+	struct atapiscsi_softc *as = sc_link->bus->sb_adapter_softc;
 	struct channel_softc *chp = as->chp;
 	struct ata_drive_datas *drvp = &chp->ch_drive[as->drive];
 
@@ -808,7 +808,7 @@ wdc_atapi_intr_command(struct channel_softc *chp, struct wdc_xfer *xfer,
 {
 	struct scsi_xfer *sc_xfer = xfer->cmd;
 	struct ata_drive_datas *drvp = &chp->ch_drive[xfer->drive];
-	struct atapiscsi_softc *as = sc_xfer->sc_link->adapter_softc;
+	struct atapiscsi_softc *as = sc_xfer->sc_link->bus->sb_adapter_softc;
 	int i;
 	u_int8_t cmd[16];
 	struct scsi_sense *cmd_reqsense;
@@ -909,7 +909,7 @@ char *
 wdc_atapi_in_data_phase(struct wdc_xfer *xfer, int len, int ire)
 {
 	struct scsi_xfer *sc_xfer = xfer->cmd;
-	struct atapiscsi_softc *as = sc_xfer->sc_link->adapter_softc;
+	struct atapiscsi_softc *as = sc_xfer->sc_link->bus->sb_adapter_softc;
 	char *message;
 
 	if (as->protocol_phase != as_data) {
@@ -1047,7 +1047,7 @@ wdc_atapi_intr_complete(struct channel_softc *chp, struct wdc_xfer *xfer,
 {
 	struct scsi_xfer *sc_xfer = xfer->cmd;
 	struct ata_drive_datas *drvp = &chp->ch_drive[xfer->drive];
-	struct atapiscsi_softc *as = sc_xfer->sc_link->adapter_softc;
+	struct atapiscsi_softc *as = sc_xfer->sc_link->bus->sb_adapter_softc;
 
 	WDCDEBUG_PRINT(("PHASE_COMPLETED\n"), DEBUG_INTR);
 
@@ -1171,7 +1171,7 @@ wdc_atapi_pio_intr(struct channel_softc *chp, struct wdc_xfer *xfer,
     int timeout, struct atapi_return_args *ret)
 {
 	struct scsi_xfer *sc_xfer = xfer->cmd;
-	struct atapiscsi_softc *as = sc_xfer->sc_link->adapter_softc;
+	struct atapiscsi_softc *as = sc_xfer->sc_link->bus->sb_adapter_softc;
 	u_int8_t ireason;
 
 	wdc_atapi_update_status(chp);

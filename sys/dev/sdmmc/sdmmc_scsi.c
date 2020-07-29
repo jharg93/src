@@ -1,4 +1,4 @@
-/*	$OpenBSD: sdmmc_scsi.c,v 1.47 2020/07/03 13:31:47 krw Exp $	*/
+/*	$OpenBSD: sdmmc_scsi.c,v 1.53 2020/07/25 16:34:30 krw Exp $	*/
 
 /*
  * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
@@ -68,7 +68,6 @@ struct sdmmc_ccb {
 TAILQ_HEAD(sdmmc_ccb_list, sdmmc_ccb);
 
 struct sdmmc_scsi_softc {
-	struct scsi_link sc_link;
 	struct device *sc_child;
 	struct sdmmc_scsi_target *sc_tgt;
 	int sc_ntargets;
@@ -137,16 +136,16 @@ sdmmc_scsi_attach(struct sdmmc_softc *sc)
 
 	sc->sc_scsibus = scbus;
 
-	scbus->sc_link.adapter_target = SDMMC_SCSIID_HOST;
-	scbus->sc_link.adapter_buswidth = scbus->sc_ntargets;
-	scbus->sc_link.adapter_softc = sc;
-	scbus->sc_link.luns = 1;
-	scbus->sc_link.openings = 1;
-	scbus->sc_link.adapter = &sdmmc_switch;
-	scbus->sc_link.pool = &scbus->sc_iopool;
-
-	bzero(&saa, sizeof(saa));
-	saa.saa.saa_sc_link = &scbus->sc_link;
+	saa.sf = NULL;
+	saa.saa.saa_adapter_target = SDMMC_SCSIID_HOST;
+	saa.saa.saa_adapter_buswidth = scbus->sc_ntargets;
+	saa.saa.saa_adapter_softc = sc;
+	saa.saa.saa_luns = 1;
+	saa.saa.saa_adapter = &sdmmc_switch;
+	saa.saa.saa_openings = 1;
+	saa.saa.saa_pool = &scbus->sc_iopool;
+	saa.saa.saa_quirks = saa.saa.saa_flags = 0;
+	saa.saa.saa_wwpn = saa.saa.saa_wwnn = 0;
 
 	scbus->sc_child = config_found(&sc->sc_dev, &saa, scsiprint);
 	if (scbus->sc_child == NULL) {
@@ -305,7 +304,7 @@ void
 sdmmc_scsi_cmd(struct scsi_xfer *xs)
 {
 	struct scsi_link *link = xs->sc_link;
-	struct sdmmc_softc *sc = link->adapter_softc;
+	struct sdmmc_softc *sc = link->bus->sb_adapter_softc;
 	struct sdmmc_scsi_softc *scbus = sc->sc_scsibus;
 	struct sdmmc_scsi_target *tgt = &scbus->sc_tgt[link->target];
 	struct scsi_read_cap_data rcd;
@@ -388,7 +387,7 @@ void
 sdmmc_inquiry(struct scsi_xfer *xs)
 {
 	struct scsi_link *link = xs->sc_link;
-	struct sdmmc_softc *sc = link->adapter_softc;
+	struct sdmmc_softc *sc = link->bus->sb_adapter_softc;
 	struct sdmmc_scsi_softc *scbus = sc->sc_scsibus;
 	struct sdmmc_scsi_target *tgt = &scbus->sc_tgt[link->target];
 	struct scsi_inquiry_data inq;
@@ -480,7 +479,7 @@ sdmmc_complete_xs(void *arg)
 	struct sdmmc_ccb *ccb = arg;
 	struct scsi_xfer *xs = ccb->ccb_xs;
 	struct scsi_link *link = xs->sc_link;
-	struct sdmmc_softc *sc = link->adapter_softc;
+	struct sdmmc_softc *sc = link->bus->sb_adapter_softc;
 	struct sdmmc_scsi_softc *scbus = sc->sc_scsibus;
 	struct sdmmc_scsi_target *tgt = &scbus->sc_tgt[link->target];
 	int error;
@@ -512,7 +511,7 @@ sdmmc_done_xs(struct sdmmc_ccb *ccb)
 	struct scsi_xfer *xs = ccb->ccb_xs;
 #ifdef SDMMC_DEBUG
 	struct scsi_link *link = xs->sc_link;
-	struct sdmmc_softc *sc = link->adapter_softc;
+	struct sdmmc_softc *sc = link->bus->sb_adapter_softc;
 #endif
 
 	timeout_del(&xs->stimeout);
@@ -547,7 +546,7 @@ sdmmc_stimeout(void *arg)
 void
 sdmmc_minphys(struct buf *bp, struct scsi_link *sl)
 {
-	struct sdmmc_softc *sc = sl->adapter_softc;
+	struct sdmmc_softc *sc = sl->bus->sb_adapter_softc;
 	struct sdmmc_scsi_softc *scbus = sc->sc_scsibus;
 	struct sdmmc_scsi_target *tgt = &scbus->sc_tgt[sl->target];
 	struct sdmmc_function *sf = tgt->card;
@@ -598,7 +597,7 @@ sdmmc_scsi_hibernate_io(dev_t dev, daddr_t blkno, vaddr_t addr, size_t size,
 		sc = NULL;
 		SLIST_FOREACH(link, &bus_sc->sc_link_list, bus_list) {
 			if (link->device_softc == disk) {
-				sc = (struct sdmmc_softc *)link->adapter_softc;
+				sc = link->bus->sb_adapter_softc;
 				scsi_sc = sc->sc_scsibus;
 				sf = scsi_sc->sc_tgt[link->target].card;
 			}

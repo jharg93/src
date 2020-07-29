@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.102 2020/06/25 13:05:58 tobhe Exp $	*/
+/*	$OpenBSD: parse.y,v 1.104 2020/07/20 21:24:46 tobhe Exp $	*/
 
 /*
  * Copyright (c) 2019 Tobias Heider <tobias.heider@stusta.de>
@@ -344,6 +344,7 @@ struct ipsec_addr_wrap {
 	sa_family_t		 af;
 	unsigned int		 type;
 	unsigned int		 action;
+	uint16_t		 port;
 	char			*name;
 	struct ipsec_addr_wrap	*next;
 	struct ipsec_addr_wrap	*tail;
@@ -353,8 +354,6 @@ struct ipsec_addr_wrap {
 struct ipsec_hosts {
 	struct ipsec_addr_wrap	*src;
 	struct ipsec_addr_wrap	*dst;
-	uint16_t		 sport;
-	uint16_t		 dport;
 };
 
 struct ipsec_filters {
@@ -649,9 +648,9 @@ hosts		: FROM host port TO host port		{
 				err(1, "hosts: calloc");
 
 			$$->src = $2;
-			$$->sport = $3;
+			$$->src->port = $3;
 			$$->dst = $5;
-			$$->dport = $6;
+			$$->dst->port = $6;
 		}
 		| TO host port FROM host port		{
 			struct ipsec_addr_wrap *ipa;
@@ -667,9 +666,9 @@ hosts		: FROM host port TO host port		{
 				err(1, "hosts: calloc");
 
 			$$->src = $5;
-			$$->sport = $6;
+			$$->src->port = $6;
 			$$->dst = $2;
-			$$->dport = $3;
+			$$->dst->port = $3;
 		}
 		;
 
@@ -2929,21 +2928,21 @@ create_ike(char *name, int af, uint8_t ipproto,
 	for (ipa = hosts->src, ipb = hosts->dst; ipa && ipb;
 	    ipa = ipa->next, ipb = ipb->next) {
 		if ((flow = calloc(1, sizeof(struct iked_flow))) == NULL)
-			fatalx("%s: falied to alloc flow.", __func__);
+			fatalx("%s: failed to alloc flow.", __func__);
 
 		memcpy(&flow->flow_src.addr, &ipa->address,
 		    sizeof(ipa->address));
 		flow->flow_src.addr_af = ipa->af;
 		flow->flow_src.addr_mask = ipa->mask;
 		flow->flow_src.addr_net = ipa->netaddress;
-		flow->flow_src.addr_port = hosts->sport;
+		flow->flow_src.addr_port = ipa->port;
 
 		memcpy(&flow->flow_dst.addr, &ipb->address,
 		    sizeof(ipb->address));
 		flow->flow_dst.addr_af = ipb->af;
 		flow->flow_dst.addr_mask = ipb->mask;
 		flow->flow_dst.addr_net = ipb->netaddress;
-		flow->flow_dst.addr_port = hosts->dport;
+		flow->flow_dst.addr_port = ipb->port;
 
 		ippn = ipa->srcnat;
 		if (ippn) {

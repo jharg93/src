@@ -1,4 +1,4 @@
-/* $OpenBSD: amptimer.c,v 1.7 2020/07/06 13:33:06 pirofti Exp $ */
+/* $OpenBSD: amptimer.c,v 1.9 2020/07/14 15:34:14 patrick Exp $ */
 /*
  * Copyright (c) 2011 Dale Rahn <drahn@openbsd.org>
  *
@@ -67,7 +67,7 @@ int32_t amptimer_frequency = TIMER_FREQUENCY;
 u_int amptimer_get_timecount(struct timecounter *);
 
 static struct timecounter amptimer_timecounter = {
-	amptimer_get_timecount, NULL, 0x7fffffff, 0, "amptimer", 0, NULL, 0
+	amptimer_get_timecount, NULL, 0xffffffff, 0, "amptimer", 0, NULL, 0
 };
 
 #define MAX_ARM_CPUS	8
@@ -113,7 +113,8 @@ void		amptimer_startclock(void);
  * interface because it uses an 'internal' interrupt
  * not a peripheral interrupt.
  */
-void	*ampintc_intr_establish(int, int, int, int (*)(void *), void *, char *);
+void	*ampintc_intr_establish(int, int, int, struct cpu_info *,
+	    int (*)(void *), void *, char *);
 
 
 
@@ -361,10 +362,10 @@ amptimer_cpu_initclocks()
 	/* XXX - irq */
 #if defined(USE_GTIMER_CMP)
 	ampintc_intr_establish(27, IST_EDGE_RISING, IPL_CLOCK,
-	    amptimer_intr, NULL, "tick");
+	    NULL, amptimer_intr, NULL, "tick");
 #else
 	ampintc_intr_establish(29, IST_EDGE_RISING, IPL_CLOCK,
-	    amptimer_intr, NULL, "tick");
+	    NULL, amptimer_intr, NULL, "tick");
 #endif
 
 	next = amptimer_readcnt64(sc) + sc->sc_ticks_per_intr;

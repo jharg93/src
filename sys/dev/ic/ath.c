@@ -1,4 +1,4 @@
-/*      $OpenBSD: ath.c,v 1.118 2020/02/19 11:05:04 claudio Exp $  */
+/*      $OpenBSD: ath.c,v 1.121 2020/07/10 13:26:37 patrick Exp $  */
 /*	$NetBSD: ath.c,v 1.37 2004/08/18 21:59:39 dyoung Exp $	*/
 
 /*-
@@ -355,7 +355,7 @@ ath_attach(u_int16_t devid, struct ath_softc *sc)
 #ifndef __OpenBSD__
 	ifp->if_stop = ath_stop;		/* XXX */
 #endif
-	IFQ_SET_MAXLEN(&ifp->if_snd, ATH_TXBUF * ATH_TXDESC);
+	ifq_set_maxlen(&ifp->if_snd, ATH_TXBUF * ATH_TXDESC);
 
 	ic->ic_softc = sc;
 	ic->ic_newassoc = ath_newassoc;
@@ -737,7 +737,7 @@ ath_stop(struct ifnet *ifp)
 		} else {
 			sc->sc_rxlink = NULL;
 		}
-		IFQ_PURGE(&ifp->if_snd);
+		ifq_purge(&ifp->if_snd);
 #ifndef IEEE80211_STA_ONLY
 		ath_beacon_free(sc);
 #endif
@@ -845,7 +845,7 @@ ath_start(struct ifnet *ifp)
 				splx(s);
 				break;
 			}
-			IFQ_DEQUEUE(&ifp->if_snd, m);
+			m = ifq_dequeue(&ifp->if_snd);
 			if (m == NULL) {
 				s = splnet();
 				TAILQ_INSERT_TAIL(&sc->sc_txbuf, bf, bf_list);

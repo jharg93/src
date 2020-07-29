@@ -1,4 +1,4 @@
-/*	$OpenBSD: mvicu.c,v 1.4 2019/02/03 14:03:36 patrick Exp $	*/
+/*	$OpenBSD: mvicu.c,v 1.6 2020/07/17 08:07:34 patrick Exp $	*/
 /*
  * Copyright (c) 2018 Mark Kettenis <kettenis@openbsd.org>
  *
@@ -93,9 +93,10 @@ struct cfdriver mvicu_cd = {
 };
 
 void	mvicu_register(struct mvicu_softc *, int, int);
-void	*mvicu_intr_establish(void *, int *, int, int (*)(void *),
-	    void *, char *);
+void	*mvicu_intr_establish(void *, int *, int, struct cpu_info *,
+	    int (*)(void *), void *, char *);
 void	mvicu_intr_disestablish(void *);
+void	mvicu_intr_barrier(void *);
 
 int
 mvicu_match(struct device *parent, void *match, void *aux)
@@ -171,6 +172,7 @@ mvicu_register(struct mvicu_softc *sc, int node, int idx)
 	sn->sn_ic.ic_cookie = sn;
 	sn->sn_ic.ic_establish = mvicu_intr_establish;
 	sn->sn_ic.ic_disestablish = mvicu_intr_disestablish;
+	sn->sn_ic.ic_barrier = mvicu_intr_barrier;
 
 	while (node && !phandle) {
 		phandle = OF_getpropint(node, "msi-parent", 0);
@@ -193,11 +195,12 @@ mvicu_register(struct mvicu_softc *sc, int node, int idx)
 
 void *
 mvicu_intr_establish(void *cookie, int *cell, int level,
-    int (*func)(void *), void *arg, char *name)
+    struct cpu_info *ci, int (*func)(void *), void *arg, char *name)
 {
 	struct mvicu_subnode *sn = cookie;
 	struct mvicu_softc *sc = sn->sn_sc;
 	struct interrupt_controller *ic = sn->sn_parent_ic;
+	struct arm_intr_handle *ih;
 	uint32_t idx, flags;
 	uint64_t addr, data;
 	int edge = 0;
@@ -222,7 +225,7 @@ mvicu_intr_establish(void *cookie, int *cell, int level,
 
 	data = flags;
 	cookie = ic->ic_establish_msi(ic->ic_cookie, &addr, &data,
-	    level, func, arg, name);
+	    level, ci, func, arg, name);
 	if (cookie == NULL)
 		return NULL;
 
@@ -258,11 +261,24 @@ mvicu_intr_establish(void *cookie, int *cell, int level,
 		    (edge ? ICU_INT_EDGE : 0));
 	}
 
-	return cookie;
+	ih = malloc(sizeof(*ih), M_DEVBUF, M_WAITOK);
+	ih->ih_ic = ic;
+	ih->ih_ih = cookie;
+
+	return ih;
 }
 
 void
 mvicu_intr_disestablish(void *cookie)
 {
 	panic("%s", __func__);
+}
+
+void
+mvicu_intr_barrier(void *cookie)
+{
+	struct arm_intr_handle *ih = cookie;
+	struct interrupt_controller *ic = ih->ih_ic;
+
+	ic->ic_barrier(ih->ih_ih);
 }

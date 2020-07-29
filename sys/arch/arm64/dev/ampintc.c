@@ -1,4 +1,4 @@
-/* $OpenBSD: ampintc.c,v 1.16 2019/09/22 15:05:37 kettenis Exp $ */
+/* $OpenBSD: ampintc.c,v 1.19 2020/07/17 08:07:33 patrick Exp $ */
 /*
  * Copyright (c) 2007,2009,2011 Dale Rahn <drahn@openbsd.org>
  *
@@ -156,10 +156,12 @@ struct intrhand {
 	int ih_irq;			/* IRQ number */
 	struct evcount	ih_count;
 	char *ih_name;
+	struct cpu_info *ih_ci;		/* CPU the IRQ runs on */
 };
 
 struct intrq {
 	TAILQ_HEAD(, intrhand) iq_list;	/* handler list */
+	struct cpu_info *iq_ci;		/* CPU the IRQ runs on */
 	int iq_irq_max;			/* IRQ to mask while handling */
 	int iq_irq_min;			/* lowest IRQ when shared */
 	int iq_ist;			/* share type */
@@ -174,10 +176,11 @@ void		 ampintc_splx(int);
 int		 ampintc_splraise(int);
 void		 ampintc_setipl(int);
 void		 ampintc_calc_mask(void);
-void		*ampintc_intr_establish(int, int, int, int (*)(void *),
-		    void *, char *);
-void		*ampintc_intr_establish_fdt(void *, int *, int,
+void		 ampintc_calc_irq(struct ampintc_softc *, int);
+void		*ampintc_intr_establish(int, int, int, struct cpu_info *,
 		    int (*)(void *), void *, char *);
+void		*ampintc_intr_establish_fdt(void *, int *, int,
+		    struct cpu_info *, int (*)(void *), void *, char *);
 void		 ampintc_intr_disestablish(void *);
 void		 ampintc_irq_handler(void *);
 const char	*ampintc_intr_string(void *);
@@ -189,6 +192,7 @@ void		 ampintc_intr_disable(int);
 void		 ampintc_intr_config(int, int);
 void		 ampintc_route(int, int, struct cpu_info *);
 void		 ampintc_route_irq(void *, int, struct cpu_info *);
+void		 ampintc_intr_barrier(void *);
 
 int		 ampintc_ipi_combined(void *);
 int		 ampintc_ipi_nop(void *);
@@ -341,16 +345,16 @@ ampintc_attach(struct device *parent, struct device *self, void *aux)
 	switch (nipi) {
 	case 1:
 		ampintc_intr_establish(ipiirq[0], IST_EDGE_RISING,
-		    IPL_IPI|IPL_MPSAFE, ampintc_ipi_combined, sc, "ipi");
+		    IPL_IPI|IPL_MPSAFE, NULL, ampintc_ipi_combined, sc, "ipi");
 		sc->sc_ipi_num[ARM_IPI_NOP] = ipiirq[0];
 		sc->sc_ipi_num[ARM_IPI_DDB] = ipiirq[0];
 		break;
 	case 2:
 		ampintc_intr_establish(ipiirq[0], IST_EDGE_RISING,
-		    IPL_IPI|IPL_MPSAFE, ampintc_ipi_nop, sc, "ipinop");
+		    IPL_IPI|IPL_MPSAFE, NULL, ampintc_ipi_nop, sc, "ipinop");
 		sc->sc_ipi_num[ARM_IPI_NOP] = ipiirq[0];
 		ampintc_intr_establish(ipiirq[1], IST_EDGE_RISING,
-		    IPL_IPI|IPL_MPSAFE, ampintc_ipi_ddb, sc, "ipiddb");
+		    IPL_IPI|IPL_MPSAFE, NULL, ampintc_ipi_ddb, sc, "ipiddb");
 		sc->sc_ipi_num[ARM_IPI_DDB] = ipiirq[1];
 		break;
 	default:
@@ -371,6 +375,7 @@ ampintc_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_ic.ic_disestablish = ampintc_intr_disestablish;
 	sc->sc_ic.ic_route = ampintc_route_irq;
 	sc->sc_ic.ic_cpu_enable = ampintc_cpuinit;
+	sc->sc_ic.ic_barrier = ampintc_intr_barrier;
 	arm_intr_register_fdt(&sc->sc_ic);
 
 	/* attach GICv2M frame controller */
@@ -453,44 +458,49 @@ ampintc_intr_config(int irqno, int type)
 void
 ampintc_calc_mask(void)
 {
-	struct cpu_info		*ci = curcpu();
-        struct ampintc_softc	*sc = ampintc;
-	struct intrhand		*ih;
+	struct ampintc_softc	*sc = ampintc;
 	int			 irq;
 
-	for (irq = 0; irq < sc->sc_nintr; irq++) {
-		int max = IPL_NONE;
-		int min = IPL_HIGH;
-		TAILQ_FOREACH(ih, &sc->sc_handler[irq].iq_list, ih_list) {
-			if (ih->ih_ipl > max)
-				max = ih->ih_ipl;
+	for (irq = 0; irq < sc->sc_nintr; irq++)
+		ampintc_calc_irq(sc, irq);
+}
 
-			if (ih->ih_ipl < min)
-				min = ih->ih_ipl;
-		}
+void
+ampintc_calc_irq(struct ampintc_softc *sc, int irq)
+{
+	struct cpu_info		*ci = sc->sc_handler[irq].iq_ci;
+	struct intrhand		*ih;
+	int			max = IPL_NONE;
+	int			min = IPL_HIGH;
 
-		if (max == IPL_NONE)
-			min = IPL_NONE;
+	TAILQ_FOREACH(ih, &sc->sc_handler[irq].iq_list, ih_list) {
+		if (ih->ih_ipl > max)
+			max = ih->ih_ipl;
 
-		if (sc->sc_handler[irq].iq_irq_max == max &&
-		    sc->sc_handler[irq].iq_irq_min == min)
-			continue;
-
-		sc->sc_handler[irq].iq_irq_max = max;
-		sc->sc_handler[irq].iq_irq_min = min;
-
-		/* Enable interrupts at lower levels, clear -> enable */
-		/* Set interrupt priority/enable */
-		if (min != IPL_NONE) {
-			ampintc_set_priority(irq, min);
-			ampintc_intr_enable(irq);
-			ampintc_route(irq, IRQ_ENABLE, ci);
-		} else {
-			ampintc_intr_disable(irq);
-			ampintc_route(irq, IRQ_DISABLE, ci);
-		}
+		if (ih->ih_ipl < min)
+			min = ih->ih_ipl;
 	}
-	ampintc_setipl(ci->ci_cpl);
+
+	if (max == IPL_NONE)
+		min = IPL_NONE;
+
+	if (sc->sc_handler[irq].iq_irq_max == max &&
+	    sc->sc_handler[irq].iq_irq_min == min)
+		return;
+
+	sc->sc_handler[irq].iq_irq_max = max;
+	sc->sc_handler[irq].iq_irq_min = min;
+
+	/* Enable interrupts at lower levels, clear -> enable */
+	/* Set interrupt priority/enable */
+	if (min != IPL_NONE) {
+		ampintc_set_priority(irq, min);
+		ampintc_intr_enable(irq);
+		ampintc_route(irq, IRQ_ENABLE, ci);
+	} else {
+		ampintc_intr_disable(irq);
+		ampintc_route(irq, IRQ_DISABLE, ci);
+	}
 }
 
 void
@@ -575,8 +585,8 @@ ampintc_route(int irq, int enable, struct cpu_info *ci)
 void
 ampintc_cpuinit(void)
 {
-	struct ampintc_softc    *sc = ampintc;
-	int			 i;
+	struct ampintc_softc	*sc = ampintc;
+	int			 i, irq;
 
 	/* XXX - this is the only cpu specific call to set this */
 	if (sc->sc_cpu_mask[cpu_number()] == 0) {
@@ -594,6 +604,15 @@ ampintc_cpuinit(void)
 
 	if (sc->sc_cpu_mask[cpu_number()] == 0)
 		panic("could not determine cpu target mask");
+
+	for (irq = 0; irq < sc->sc_nintr; irq++) {
+		if (sc->sc_handler[irq].iq_ci != curcpu())
+			continue;
+		if (sc->sc_handler[irq].iq_irq_min != IPL_NONE)
+			ampintc_route(irq, IRQ_ENABLE, curcpu());
+		else
+			ampintc_route(irq, IRQ_DISABLE, curcpu());
+	}
 }
 
 void
@@ -611,6 +630,14 @@ ampintc_route_irq(void *v, int enable, struct cpu_info *ci)
 	}
 
 	ampintc_route(ih->ih_irq, enable, ci);
+}
+
+void
+ampintc_intr_barrier(void *cookie)
+{
+	struct intrhand		*ih = cookie;
+
+	sched_barrier(ih->ih_ci);
 }
 
 void
@@ -686,7 +713,7 @@ ampintc_irq_handler(void *frame)
 
 void *
 ampintc_intr_establish_fdt(void *cookie, int *cell, int level,
-    int (*func)(void *), void *arg, char *name)
+    struct cpu_info *ci, int (*func)(void *), void *arg, char *name)
 {
 	struct ampintc_softc	*sc = (struct ampintc_softc *)cookie;
 	int			 irq;
@@ -709,12 +736,12 @@ ampintc_intr_establish_fdt(void *cookie, int *cell, int level,
 	else
 		type = IST_LEVEL_HIGH;
 
-	return ampintc_intr_establish(irq, type, level, func, arg, name);
+	return ampintc_intr_establish(irq, type, level, ci, func, arg, name);
 }
 
 void *
-ampintc_intr_establish(int irqno, int type, int level, int (*func)(void *),
-    void *arg, char *name)
+ampintc_intr_establish(int irqno, int type, int level, struct cpu_info *ci,
+    int (*func)(void *), void *arg, char *name)
 {
 	struct ampintc_softc	*sc = ampintc;
 	struct intrhand		*ih;
@@ -723,6 +750,9 @@ ampintc_intr_establish(int irqno, int type, int level, int (*func)(void *),
 	if (irqno < 0 || irqno >= sc->sc_nintr)
 		panic("ampintc_intr_establish: bogus irqnumber %d: %s",
 		     irqno, name);
+
+	if (ci == NULL)
+		ci = &cpu_info_primary;
 
 	if (irqno < 16) {
 		/* SGI are only EDGE */
@@ -739,10 +769,19 @@ ampintc_intr_establish(int irqno, int type, int level, int (*func)(void *),
 	ih->ih_flags = level & IPL_FLAGMASK;
 	ih->ih_irq = irqno;
 	ih->ih_name = name;
+	ih->ih_ci = ci;
 
 	psw = disable_interrupts();
 
+	if (!TAILQ_EMPTY(&sc->sc_handler[irqno].iq_list) &&
+	    sc->sc_handler[irqno].iq_ci != ci) {
+		free(ih, M_DEVBUF, sizeof(*ih));
+		restore_interrupts(psw);
+		return NULL;
+	}
+
 	TAILQ_INSERT_TAIL(&sc->sc_handler[irqno].iq_list, ih, ih_list);
+	sc->sc_handler[irqno].iq_ci = ci;
 
 	if (name != NULL)
 		evcount_attach(&ih->ih_count, name, &ih->ih_irq);
@@ -804,8 +843,9 @@ ampintc_intr_string(void *cookie)
 int	 ampintc_msi_match(struct device *, void *, void *);
 void	 ampintc_msi_attach(struct device *, struct device *, void *);
 void	*ampintc_intr_establish_msi(void *, uint64_t *, uint64_t *,
-	    int , int (*)(void *), void *, char *);
+	    int , struct cpu_info *, int (*)(void *), void *, char *);
 void	 ampintc_intr_disestablish_msi(void *);
+void	 ampintc_intr_barrier_msi(void *);
 
 struct ampintc_msi_softc {
 	struct device			 sc_dev;
@@ -870,12 +910,13 @@ ampintc_msi_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_ic.ic_cookie = sc;
 	sc->sc_ic.ic_establish_msi = ampintc_intr_establish_msi;
 	sc->sc_ic.ic_disestablish = ampintc_intr_disestablish_msi;
+	sc->sc_ic.ic_barrier = ampintc_intr_barrier_msi;
 	arm_intr_register_fdt(&sc->sc_ic);
 }
 
 void *
 ampintc_intr_establish_msi(void *self, uint64_t *addr, uint64_t *data,
-    int level, int (*func)(void *), void *arg, char *name)
+    int level, struct cpu_info *ci, int (*func)(void *), void *arg, char *name)
 {
 	struct ampintc_msi_softc *sc = (struct ampintc_msi_softc *)self;
 	void *cookie;
@@ -886,7 +927,7 @@ ampintc_intr_establish_msi(void *self, uint64_t *addr, uint64_t *data,
 			continue;
 
 		cookie = ampintc_intr_establish(sc->sc_bspi + i,
-		    IST_EDGE_RISING, level, func, arg, name);
+		    IST_EDGE_RISING, level, ci, func, arg, name);
 		if (cookie == NULL)
 			return NULL;
 
@@ -904,6 +945,12 @@ ampintc_intr_disestablish_msi(void *cookie)
 {
 	ampintc_intr_disestablish(*(void **)cookie);
 	*(void **)cookie = NULL;
+}
+
+void
+ampintc_intr_barrier_msi(void *cookie)
+{
+	ampintc_intr_barrier(*(void **)cookie);
 }
 
 #ifdef MULTIPROCESSOR

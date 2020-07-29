@@ -1,4 +1,4 @@
-/*	$OpenBSD: umass_scsi.c,v 1.52 2020/06/27 17:28:58 krw Exp $ */
+/*	$OpenBSD: umass_scsi.c,v 1.58 2020/07/22 13:16:05 krw Exp $ */
 /*	$NetBSD: umass_scsipi.c,v 1.9 2003/02/16 23:14:08 augustss Exp $	*/
 /*
  * Copyright (c) 2001 The NetBSD Foundation, Inc.
@@ -53,7 +53,6 @@
 
 struct umass_scsi_softc {
 	struct device		*sc_child;
-	struct scsi_link	sc_link;
 	struct scsi_iopool	sc_iopool;
 	int			sc_open;
 
@@ -83,25 +82,11 @@ umass_scsi_attach(struct umass_softc *sc)
 {
 	struct scsibus_attach_args saa;
 	struct umass_scsi_softc *scbus;
+	u_int16_t flags = SDEV_UMASS;
 
 	scbus = malloc(sizeof(*scbus), M_DEVBUF, M_WAITOK | M_ZERO);
 
 	sc->bus = scbus;
-
-	scsi_iopool_init(&scbus->sc_iopool, scbus, umass_io_get, umass_io_put);
-
-	/* Fill in the link. */
-	scbus->sc_link.adapter_buswidth = 2;
-	scbus->sc_link.adapter = &umass_scsi_switch;
-	scbus->sc_link.adapter_softc = sc;
-	scbus->sc_link.adapter_target = UMASS_SCSIID_HOST;
-	scbus->sc_link.openings = 1;
-	scbus->sc_link.quirks = SDEV_ONLYBIG | sc->sc_busquirks;
-	scbus->sc_link.pool = &scbus->sc_iopool;
-	scbus->sc_link.luns = sc->maxlun + 1;
-	scbus->sc_link.flags = SDEV_UMASS;
-
-	saa.saa_sc_link = &scbus->sc_link;
 
 	switch (sc->sc_cmd) {
 	case UMASS_CPROTO_RBC:
@@ -112,7 +97,7 @@ umass_scsi_attach(struct umass_softc *sc)
 		break;
 	case UMASS_CPROTO_UFI:
 	case UMASS_CPROTO_ATAPI:
-		scbus->sc_link.flags |= SDEV_ATAPI;
+		flags |= SDEV_ATAPI;
 		DPRINTF(UDMASS_USB, ("%s: umass_attach_bus: ATAPI\n"
 				     "sc = 0x%p, scbus = 0x%p\n",
 				     sc->sc_dev.dv_xname, sc, scbus));
@@ -120,6 +105,19 @@ umass_scsi_attach(struct umass_softc *sc)
 	default:
 		break;
 	}
+
+	scsi_iopool_init(&scbus->sc_iopool, scbus, umass_io_get, umass_io_put);
+
+	saa.saa_adapter_buswidth = 2;
+	saa.saa_adapter = &umass_scsi_switch;
+	saa.saa_adapter_softc = sc;
+	saa.saa_adapter_target = UMASS_SCSIID_HOST;
+	saa.saa_luns = sc->maxlun + 1;
+	saa.saa_openings = 1;
+	saa.saa_quirks = SDEV_ONLYBIG | sc->sc_busquirks;
+	saa.saa_pool = &scbus->sc_iopool;
+	saa.saa_flags = flags;
+	saa.saa_wwpn = saa.saa_wwnn = 0;
 
 	sc->sc_refcnt++;
 	scbus->sc_child = config_found((struct device *)sc, &saa, scsiprint);
@@ -148,7 +146,7 @@ umass_scsi_detach(struct umass_softc *sc, int flags)
 int
 umass_scsi_probe(struct scsi_link *link)
 {
-	struct umass_softc *sc = link->adapter_softc;
+	struct umass_softc *sc = link->bus->sb_adapter_softc;
 	struct usb_device_info udi;
 	size_t len;
 
@@ -179,7 +177,7 @@ void
 umass_scsi_cmd(struct scsi_xfer *xs)
 {
 	struct scsi_link *sc_link = xs->sc_link;
-	struct umass_softc *sc = sc_link->adapter_softc;
+	struct umass_softc *sc = sc_link->bus->sb_adapter_softc;
 	struct scsi_generic *cmd;
 	int cmdlen, dir;
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: aic79xx_openbsd.c,v 1.52 2020/07/02 15:58:17 krw Exp $	*/
+/*	$OpenBSD: aic79xx_openbsd.c,v 1.58 2020/07/28 21:33:14 krw Exp $	*/
 
 /*
  * Copyright (c) 2004 Milos Urbanek, Kenneth R. Westerback & Marco Peereboom
@@ -109,18 +109,15 @@ ahd_attach(struct ahd_softc *ahd)
 	if (ahd->flags & AHD_RESET_BUS_A)
 		ahd_reset_channel(ahd, 'A', TRUE);
 
-	/*
-	 * fill in the prototype scsi_links.
-	 */
-	ahd->sc_channel.adapter_target = ahd->our_id;
-	if (ahd->features & AHD_WIDE)
-		ahd->sc_channel.adapter_buswidth = 16;
-	ahd->sc_channel.adapter_softc = ahd;
-	ahd->sc_channel.adapter = &ahd_switch;
-	ahd->sc_channel.openings = 16; /* Must ALWAYS be < 256!! */
-	ahd->sc_channel.pool = &ahd->sc_iopool;
-
-	saa.saa_sc_link = &ahd->sc_channel;
+	saa.saa_adapter_target = ahd->our_id;
+	saa.saa_adapter_buswidth = (ahd->features & AHD_WIDE) ? 16 : 8;
+	saa.saa_adapter_softc = ahd;
+	saa.saa_adapter = &ahd_switch;
+	saa.saa_luns = 8;
+	saa.saa_openings = 16; /* Must ALWAYS be < 256!! */
+	saa.saa_pool = &ahd->sc_iopool;
+	saa.saa_quirks = saa.saa_flags = 0;
+	saa.saa_wwpn = saa.saa_wwnn = 0;
 
 	ahd->sc_child = config_found((void *)&ahd->sc_dev, &saa, scsiprint);
 
@@ -259,8 +256,10 @@ ahd_action(struct scsi_xfer *xs)
 	struct	ahd_tmode_tstate *tstate;
 	u_int16_t quirks;
 
-	SC_DEBUG(xs->sc_link, SDEV_DB3, ("ahd_action\n"));
-	ahd = (struct ahd_softc *)xs->sc_link->adapter_softc;
+#ifdef AHD_DEBUG
+	printf("%s: ahd_action\n", ahd_name(ahd));
+#endif
+	ahd = xs->sc_link->bus->sb_adapter_softc;
 
 	target_id = xs->sc_link->target;
 	our_id = SCSI_SCSI_ID(ahd, xs->sc_link);
@@ -287,7 +286,9 @@ ahd_action(struct scsi_xfer *xs)
 	scb->hscb->control = 0;
 	ahd->scb_data.scbindex[SCB_GET_TAG(scb)] = NULL;
 
-	SC_DEBUG(xs->sc_link, SDEV_DB3, ("start scb(%p)\n", scb));
+#ifdef AHD_DEBUG
+	printf("%s: start scb(%p)\n", ahd_name(ahd), scb);
+#endif
 
 	scb->xs = xs;
 	timeout_set(&xs->stimeout, ahd_timeout, scb);
@@ -325,7 +326,7 @@ ahd_execute_scb(void *arg, bus_dma_segment_t *dm_segs, int nsegments)
 	xs = scb->xs;
 	xs->error = CAM_REQ_INPROG;
 	xs->status = 0;
-	ahd = (struct ahd_softc *)xs->sc_link->adapter_softc;
+	ahd = xs->sc_link->bus->sb_adapter_softc;
 
 	if (nsegments != 0) {
 		void *sg;
@@ -434,7 +435,9 @@ ahd_execute_scb(void *arg, bus_dma_segment_t *dm_segs, int nsegments)
 	/*
 	 * If we can't use interrupts, poll for completion
 	 */
-	SC_DEBUG(xs->sc_link, SDEV_DB3, ("cmd_poll\n"));
+#ifdef AHD_DEBUG
+	printf("%s: cmd_poll\n", ahd_name(ahd));
+#endif
 
 	do {
 		if (ahd_poll(ahd, xs->timeout)) {

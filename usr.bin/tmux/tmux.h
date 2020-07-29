@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.1073 2020/07/06 09:14:20 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.1075 2020/07/27 08:03:10 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -2450,8 +2450,7 @@ struct style_range *status_get_range(struct client *, u_int, u_int);
 void	 status_init(struct client *);
 void	 status_free(struct client *);
 int	 status_redraw(struct client *);
-void printflike(3, 4) status_message_set(struct client *, int, const char *,
-	     ...);
+void status_message_set(struct client *, int, int, const char *, ...);
 void	 status_message_clear(struct client *);
 int	 status_message_redraw(struct client *);
 void	 status_prompt_set(struct client *, struct cmd_find_state *,
@@ -2940,6 +2939,7 @@ enum utf8_state	 utf8_append(struct utf8_data *, u_char);
 int		 utf8_isvalid(const char *);
 int		 utf8_strvis(char *, const char *, size_t, int);
 int		 utf8_stravis(char **, const char *, int);
+int		 utf8_stravisx(char **, const char *, size_t, int);
 char		*utf8_sanitize(const char *);
 size_t		 utf8_strlen(const struct utf8_data *);
 u_int		 utf8_strwidth(const struct utf8_data *, ssize_t);

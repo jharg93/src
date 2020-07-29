@@ -1,4 +1,4 @@
-/* $OpenBSD: mfi.c,v 1.179 2020/06/27 17:28:58 krw Exp $ */
+/* $OpenBSD: mfi.c,v 1.185 2020/07/24 12:43:31 krw Exp $ */
 /*
  * Copyright (c) 2006 Marco Peereboom <marco@peereboom.us>
  *
@@ -284,7 +284,7 @@ mfi_init_ccb(struct mfi_softc *sc)
 		}
 
 		DNPRINTF(MFI_D_CCB,
-		    "ccb(%d): %p frame: %#x (%#x) sense: %#x (%#x) map: %#x\n",
+		    "ccb(%d): %p frame: %p (%#lx) sense: %p (%#lx) map: %p\n",
 		    ccb->ccb_frame->mfr_header.mfh_context, ccb,
 		    ccb->ccb_frame, ccb->ccb_pframe,
 		    ccb->ccb_sense, ccb->ccb_psense,
@@ -314,14 +314,14 @@ mfi_read(struct mfi_softc *sc, bus_size_t r)
 	    BUS_SPACE_BARRIER_READ);
 	rv = bus_space_read_4(sc->sc_iot, sc->sc_ioh, r);
 
-	DNPRINTF(MFI_D_RW, "%s: mr 0x%x 0x08%x ", DEVNAME(sc), r, rv);
+	DNPRINTF(MFI_D_RW, "%s: mr 0x%lx 0x08%x ", DEVNAME(sc), r, rv);
 	return (rv);
 }
 
 void
 mfi_write(struct mfi_softc *sc, bus_size_t r, uint32_t v)
 {
-	DNPRINTF(MFI_D_RW, "%s: mw 0x%x 0x%08x", DEVNAME(sc), r, v);
+	DNPRINTF(MFI_D_RW, "%s: mw 0x%lx 0x%08x", DEVNAME(sc), r, v);
 
 	bus_space_write_4(sc->sc_iot, sc->sc_ioh, r, v);
 	bus_space_barrier(sc->sc_iot, sc->sc_ioh, r, 4,
@@ -334,7 +334,7 @@ mfi_allocmem(struct mfi_softc *sc, size_t size)
 	struct mfi_mem		*mm;
 	int			nsegs;
 
-	DNPRINTF(MFI_D_MEM, "%s: mfi_allocmem: %d\n", DEVNAME(sc),
+	DNPRINTF(MFI_D_MEM, "%s: mfi_allocmem: %zu\n", DEVNAME(sc),
 	    size);
 
 	mm = malloc(sizeof(struct mfi_mem), M_DEVBUF, M_NOWAIT|M_ZERO);
@@ -359,7 +359,7 @@ mfi_allocmem(struct mfi_softc *sc, size_t size)
 	    BUS_DMA_NOWAIT) != 0)
 		goto unmap;
 
-	DNPRINTF(MFI_D_MEM, "  kva: %p  dva: %p  map: %p\n",
+	DNPRINTF(MFI_D_MEM, "  kva: %p  dva: %lx  map: %p\n",
 	    mm->am_kva, mm->am_map->dm_segs[0].ds_addr, mm->am_map);
 
 	return (mm);
@@ -771,15 +771,15 @@ mfi_attach(struct mfi_softc *sc, enum mfi_iop iop)
 	for (i = 0; i < sc->sc_ld_cnt; i++)
 		sc->sc_ld[i].ld_present = 1;
 
-	sc->sc_link.adapter = &mfi_switch;
-	sc->sc_link.adapter_softc = sc;
-	sc->sc_link.adapter_buswidth = sc->sc_info.mci_max_lds;
-	sc->sc_link.adapter_target = SDEV_NO_ADAPTER_TARGET;
-	sc->sc_link.luns = 1;
-	sc->sc_link.openings = sc->sc_max_cmds - 1;
-	sc->sc_link.pool = &sc->sc_iopool;
-
-	saa.saa_sc_link = &sc->sc_link;
+	saa.saa_adapter = &mfi_switch;
+	saa.saa_adapter_softc = sc;
+	saa.saa_adapter_buswidth = sc->sc_info.mci_max_lds;
+	saa.saa_adapter_target = SDEV_NO_ADAPTER_TARGET;
+	saa.saa_luns = 1;
+	saa.saa_openings = sc->sc_max_cmds - 1;
+	saa.saa_pool = &sc->sc_iopool;
+	saa.saa_quirks = saa.saa_flags = 0;
+	saa.saa_wwpn = saa.saa_wwnn = 0;
 
 	sc->sc_scsibus = (struct scsibus_softc *)
 	    config_found(&sc->sc_dev, &saa, scsiprint);
@@ -817,7 +817,6 @@ int
 mfi_syspd(struct mfi_softc *sc)
 {
 	struct scsibus_attach_args saa;
-	struct scsi_link *link;
 	struct mfi_pd_link *pl;
 	struct mfi_pd_list *pd;
 	u_int npds, i;
@@ -846,15 +845,15 @@ mfi_syspd(struct mfi_softc *sc)
 
 	free(pd, M_TEMP, sizeof *pd);
 
-	link = &sc->sc_pd->pd_link;
-	link->adapter = &mfi_pd_switch;
-	link->adapter_softc = sc;
-	link->adapter_buswidth = MFI_MAX_PD;
-	link->adapter_target = SDEV_NO_ADAPTER_TARGET;
-	link->openings = sc->sc_max_cmds - 1;
-	link->pool = &sc->sc_iopool;
-
-	saa.saa_sc_link = link;
+	saa.saa_adapter = &mfi_pd_switch;
+	saa.saa_adapter_softc = sc;
+	saa.saa_adapter_buswidth = MFI_MAX_PD;
+	saa.saa_adapter_target = SDEV_NO_ADAPTER_TARGET;
+	saa.saa_luns = 8;
+	saa.saa_openings = sc->sc_max_cmds - 1;
+	saa.saa_pool = &sc->sc_iopool;
+	saa.saa_quirks = saa.saa_flags = 0;
+	saa.saa_wwpn = saa.saa_wwnn = 0;
 
 	sc->sc_pd->pd_scsibus = (struct scsibus_softc *)
 	    config_found(&sc->sc_dev, &saa, scsiprint);
@@ -974,7 +973,7 @@ mfi_intr(void *arg)
 	producer = letoh32(pcq->mpc_producer);
 	consumer = letoh32(pcq->mpc_consumer);
 
-	DNPRINTF(MFI_D_INTR, "%s: mfi_intr %#x %#x\n", DEVNAME(sc), sc, pcq);
+	DNPRINTF(MFI_D_INTR, "%s: mfi_intr %p %p\n", DEVNAME(sc), sc, pcq);
 
 	while (consumer != producer) {
 		DNPRINTF(MFI_D_INTR, "%s: mfi_intr pi %#x ci %#x\n",
@@ -1016,7 +1015,7 @@ mfi_scsi_io(struct mfi_softc *sc, struct mfi_ccb *ccb,
 	struct mfi_io_frame	*io;
 
 	DNPRINTF(MFI_D_CMD, "%s: mfi_scsi_io: %d\n",
-	    DEVNAME((struct mfi_softc *)link->adapter_softc), link->target);
+	    DEVNAME((struct mfi_softc *)link->bus->sb_adapter_softc), link->target);
 
 	if (!xs->data)
 		return (1);
@@ -1057,7 +1056,7 @@ mfi_scsi_xs_done(struct mfi_softc *sc, struct mfi_ccb *ccb)
 	struct scsi_xfer	*xs = ccb->ccb_cookie;
 	struct mfi_frame_header	*hdr = &ccb->ccb_frame->mfr_header;
 
-	DNPRINTF(MFI_D_INTR, "%s: mfi_scsi_xs_done %#x %#x\n",
+	DNPRINTF(MFI_D_INTR, "%s: mfi_scsi_xs_done %p %p\n",
 	    DEVNAME(sc), ccb, ccb->ccb_frame);
 
 	switch (hdr->mfh_cmd_status) {
@@ -1078,13 +1077,13 @@ mfi_scsi_xs_done(struct mfi_softc *sc, struct mfi_ccb *ccb)
 
 	default:
 		xs->error = XS_DRIVER_STUFFUP;
-		DPRINTF(MFI_D_CMD,
+		DNPRINTF(MFI_D_CMD,
 		    "%s: mfi_scsi_xs_done stuffup %02x on %02x\n",
 		    DEVNAME(sc), hdr->mfh_cmd_status, xs->cmd->opcode);
 
 		if (hdr->mfh_scsi_status != 0) {
 			DNPRINTF(MFI_D_INTR,
-			    "%s: mfi_scsi_xs_done sense %#x %x %x\n",
+			    "%s: mfi_scsi_xs_done sense %#x %p %p\n",
 			    DEVNAME(sc), hdr->mfh_scsi_status,
 			    &xs->sense, ccb->ccb_sense);
 			memset(&xs->sense, 0, sizeof(xs->sense));
@@ -1107,7 +1106,7 @@ mfi_scsi_ld(struct mfi_softc *sc, struct mfi_ccb *ccb, struct scsi_xfer *xs)
 	struct mfi_pass_frame	*pf;
 
 	DNPRINTF(MFI_D_CMD, "%s: mfi_scsi_ld: %d\n",
-	    DEVNAME((struct mfi_softc *)link->adapter_softc), link->target);
+	    DEVNAME((struct mfi_softc *)link->bus->sb_adapter_softc), link->target);
 
 	pf = &ccb->ccb_frame->mfr_pass;
 	pf->mpf_header.mfh_cmd = MFI_CMD_LD_SCSI_IO;
@@ -1150,7 +1149,7 @@ void
 mfi_scsi_cmd(struct scsi_xfer *xs)
 {
 	struct scsi_link	*link = xs->sc_link;
-	struct mfi_softc	*sc = link->adapter_softc;
+	struct mfi_softc	*sc = link->bus->sb_adapter_softc;
 	struct mfi_ccb		*ccb = xs->io;
 	struct scsi_rw		*rw;
 	struct scsi_rw_big	*rwb;
@@ -1251,7 +1250,7 @@ mfi_default_sgd_load(struct mfi_softc *sc, struct mfi_ccb *ccb)
 		if (sc->sc_64bit_dma) {
 			sgl->sg64[i].addr = htole64(sgd[i].ds_addr);
 			sgl->sg64[i].len = htole32(sgd[i].ds_len);
-			DNPRINTF(MFI_D_DMA, "%s: addr: %#x  len: %#x\n",
+			DNPRINTF(MFI_D_DMA, "%s: addr: %#llx  len: %#x\n",
 			    DEVNAME(sc), sgl->sg64[i].addr, sgl->sg64[i].len);
 		} else {
 			sgl->sg32[i].addr = htole32(sgd[i].ds_addr);
@@ -1271,7 +1270,7 @@ mfi_create_sgl(struct mfi_softc *sc, struct mfi_ccb *ccb, int flags)
 	struct mfi_frame_header	*hdr = &ccb->ccb_frame->mfr_header;
 	int			error;
 
-	DNPRINTF(MFI_D_DMA, "%s: mfi_create_sgl %#x\n", DEVNAME(sc),
+	DNPRINTF(MFI_D_DMA, "%s: mfi_create_sgl %p\n", DEVNAME(sc),
 	    ccb->ccb_data);
 
 	if (!ccb->ccb_data) {
@@ -1404,7 +1403,7 @@ done:
 int
 mfi_scsi_ioctl(struct scsi_link *link, u_long cmd, caddr_t addr, int flag)
 {
-	struct mfi_softc	*sc = (struct mfi_softc *)link->adapter_softc;
+	struct mfi_softc	*sc = link->bus->sb_adapter_softc;
 
 	DNPRINTF(MFI_D_IOCTL, "%s: mfi_scsi_ioctl\n", DEVNAME(sc));
 
@@ -1416,7 +1415,7 @@ mfi_scsi_ioctl(struct scsi_link *link, u_long cmd, caddr_t addr, int flag)
 
 	default:
 		if (sc->sc_ioctl)
-			return (sc->sc_ioctl(link->adapter_softc, cmd, addr));
+			return (sc->sc_ioctl(&sc->sc_dev, cmd, addr));
 		break;
 	}
 
@@ -1426,7 +1425,7 @@ mfi_scsi_ioctl(struct scsi_link *link, u_long cmd, caddr_t addr, int flag)
 int
 mfi_ioctl_cache(struct scsi_link *link, u_long cmd,  struct dk_cache *dc)
 {
-	struct mfi_softc	*sc = (struct mfi_softc *)link->adapter_softc;
+	struct mfi_softc	*sc = link->bus->sb_adapter_softc;
 	int			 rv, wrenable, rdenable;
 	struct mfi_ld_prop	 ldp;
 	union mfi_mbox		 mbox;
@@ -2714,7 +2713,7 @@ int
 mfi_pd_scsi_probe(struct scsi_link *link)
 {
 	union mfi_mbox mbox;
-	struct mfi_softc *sc = link->adapter_softc;
+	struct mfi_softc *sc = link->bus->sb_adapter_softc;
 	struct mfi_pd_link *pl = sc->sc_pd->pd_links[link->target];
 
 	if (link->lun > 0)
@@ -2740,7 +2739,7 @@ void
 mfi_pd_scsi_cmd(struct scsi_xfer *xs)
 {
 	struct scsi_link *link = xs->sc_link;
-	struct mfi_softc *sc = link->adapter_softc;
+	struct mfi_softc *sc = link->bus->sb_adapter_softc;
 	struct mfi_ccb *ccb = xs->io;
 	struct mfi_pass_frame *pf = &ccb->ccb_frame->mfr_pass;
 	struct mfi_pd_link *pl = sc->sc_pd->pd_links[link->target];

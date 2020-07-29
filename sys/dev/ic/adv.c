@@ -1,4 +1,4 @@
-/*	$OpenBSD: adv.c,v 1.43 2020/06/27 14:29:44 krw Exp $	*/
+/*	$OpenBSD: adv.c,v 1.49 2020/07/24 12:43:31 krw Exp $	*/
 /*	$NetBSD: adv.c,v 1.6 1998/10/28 20:39:45 dante Exp $	*/
 
 /*
@@ -480,16 +480,6 @@ adv_attach(sc)
 	scsi_iopool_init(&sc->sc_iopool, sc, adv_ccb_alloc, adv_ccb_free);
 
 	/*
-         * fill in the prototype scsi_link.
-         */
-	sc->sc_link.adapter_softc = sc;
-	sc->sc_link.adapter_target = sc->chip_scsi_id;
-	sc->sc_link.adapter = &adv_switch;
-	sc->sc_link.openings = 4;
-	sc->sc_link.pool = &sc->sc_iopool;
-	sc->sc_link.adapter_buswidth = 7;
-
-	/*
          * Allocate the Control Blocks.
          */
 	error = adv_alloc_ccbs(sc);
@@ -509,7 +499,16 @@ adv_attach(sc)
 		       sc->sc_dev.dv_xname, i, ADV_MAX_CCB);
 	}
 
-	saa.saa_sc_link = &sc->sc_link;
+	saa.saa_adapter_softc = sc;
+	saa.saa_adapter_target = sc->chip_scsi_id;
+	saa.saa_adapter = &adv_switch;
+	saa.saa_adapter_buswidth = 7;
+	saa.saa_luns = 8;
+	saa.saa_openings = 4;
+	saa.saa_pool = &sc->sc_iopool;
+	saa.saa_wwpn = saa.saa_wwnn = 0;
+	saa.saa_quirks = saa.saa_flags = 0;
+
 	config_found(&sc->sc_dev, &saa, scsiprint);
 }
 
@@ -523,7 +522,7 @@ adv_scsi_cmd(xs)
 	struct scsi_xfer *xs;
 {
 	struct scsi_link *sc_link = xs->sc_link;
-	ASC_SOFTC      *sc = sc_link->adapter_softc;
+	ASC_SOFTC      *sc = sc_link->bus->sb_adapter_softc;
 	bus_dma_tag_t   dmat = sc->sc_dmat;
 	ADV_CCB        *ccb;
 	int             flags, error, nsegs;
@@ -629,8 +628,8 @@ adv_scsi_cmd(xs)
 
 #ifdef ASC_DEBUG
 	printf("id = %d, lun = %d, cmd = %d, ccb = 0x%lX \n",
-			sc_link->scsipi_scsi.target,
-			sc_link->scsipi_scsi.lun, xs->cmd->opcode,
+			sc_link->target,
+			sc_link->lun, xs->cmd->opcode,
 			(unsigned long)ccb);
 #endif
 	/*
@@ -707,7 +706,7 @@ adv_timeout(arg)
 	ADV_CCB        *ccb = arg;
 	struct scsi_xfer *xs = ccb->xs;
 	struct scsi_link *sc_link = xs->sc_link;
-	ASC_SOFTC      *sc = sc_link->adapter_softc;
+	ASC_SOFTC      *sc = sc_link->bus->sb_adapter_softc;
 	int             s;
 
 	sc_print_addr(sc_link);
@@ -748,7 +747,7 @@ adv_watchdog(arg)
 	ADV_CCB        *ccb = arg;
 	struct scsi_xfer *xs = ccb->xs;
 	struct scsi_link *sc_link = xs->sc_link;
-	ASC_SOFTC      *sc = sc_link->adapter_softc;
+	ASC_SOFTC      *sc = sc_link->bus->sb_adapter_softc;
 	int             s;
 
 	s = splbio();
@@ -784,8 +783,8 @@ adv_narrow_isr_callback(sc, qdonep)
 #ifdef ASC_DEBUG
 	printf(" - ccb=0x%lx, id=%d, lun=%d, cmd=%d, ",
 			(unsigned long)ccb,
-			xs->sc_link->scsipi_scsi.target,
-			xs->sc_link->scsipi_scsi.lun, xs->cmd->opcode);
+			xs->sc_link->target,
+			xs->sc_link->lun, xs->cmd->opcode);
 #endif
 	timeout_del(&xs->stimeout);
 

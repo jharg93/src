@@ -1,4 +1,4 @@
-/* $OpenBSD: softraid.c,v 1.405 2020/06/27 17:28:58 krw Exp $ */
+/* $OpenBSD: softraid.c,v 1.410 2020/07/20 14:41:12 krw Exp $ */
 /*
  * Copyright (c) 2007, 2008, 2009 Marco Peereboom <marco@peereboom.us>
  * Copyright (c) 2008 Chris Kuethe <ckuethe@openbsd.org>
@@ -1802,16 +1802,18 @@ sr_attach(struct device *parent, struct device *self, void *aux)
 
 	printf("\n");
 
-	sc->sc_link.adapter_softc = sc;
-	sc->sc_link.adapter = &sr_switch;
-	sc->sc_link.adapter_target = SDEV_NO_ADAPTER_TARGET;
-	sc->sc_link.adapter_buswidth = SR_MAX_LD;
-	sc->sc_link.luns = 1;
+	saa.saa_adapter_softc = sc;
+	saa.saa_adapter = &sr_switch;
+	saa.saa_adapter_target = SDEV_NO_ADAPTER_TARGET;
+	saa.saa_adapter_buswidth = SR_MAX_LD;
+	saa.saa_luns = 1;
+	saa.saa_openings = 0;
+	saa.saa_pool = NULL;
+	saa.saa_quirks = saa.saa_flags = 0;
+	saa.saa_wwpn = saa.saa_wwnn = 0;
 
-	saa.saa_sc_link = &sc->sc_link;
-
-	sc->sc_scsibus = (struct scsibus_softc *)config_found(&sc->sc_dev,
-	    &saa, scsiprint);
+	sc->sc_scsibus = (struct scsibus_softc *)config_found(&sc->sc_dev, &saa,
+	    scsiprint);
 
 	softraid_disk_attach = sr_disk_attach;
 
@@ -2326,7 +2328,7 @@ void
 sr_scsi_cmd(struct scsi_xfer *xs)
 {
 	struct scsi_link	*link = xs->sc_link;
-	struct sr_softc		*sc = link->adapter_softc;
+	struct sr_softc		*sc = link->bus->sb_adapter_softc;
 	struct sr_workunit	*wu = xs->io;
 	struct sr_discipline	*sd;
 
@@ -2428,7 +2430,7 @@ complete:
 int
 sr_scsi_probe(struct scsi_link *link)
 {
-	struct sr_softc		*sc = link->adapter_softc;
+	struct sr_softc		*sc = link->bus->sb_adapter_softc;
 	struct sr_discipline	*sd;
 
 	KASSERT(link->target < SR_MAX_LD && link->lun == 0);
@@ -2449,7 +2451,7 @@ sr_scsi_probe(struct scsi_link *link)
 int
 sr_scsi_ioctl(struct scsi_link *link, u_long cmd, caddr_t addr, int flag)
 {
-	struct sr_softc		*sc = link->adapter_softc;
+	struct sr_softc		*sc = link->bus->sb_adapter_softc;
 	struct sr_discipline	*sd;
 
 	sd = sc->sc_targets[link->target];
@@ -3736,7 +3738,7 @@ sr_ioctl_installboot(struct sr_softc *sc, struct sr_discipline *sd,
 	if (omi == NULL) {
 		omi = malloc(sizeof(struct sr_meta_opt_item), M_DEVBUF,
 		    M_WAITOK | M_ZERO);
-		omi->omi_som = malloc(sizeof(struct sr_meta_crypto), M_DEVBUF,
+		omi->omi_som = malloc(sizeof(struct sr_meta_boot), M_DEVBUF,
 		    M_WAITOK | M_ZERO);
 		omi->omi_som->som_type = SR_OPT_BOOT;
 		omi->omi_som->som_length = sizeof(struct sr_meta_boot);

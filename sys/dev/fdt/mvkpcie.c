@@ -1,4 +1,4 @@
-/*	$OpenBSD: mvkpcie.c,v 1.4 2020/05/22 21:40:20 kettenis Exp $	*/
+/*	$OpenBSD: mvkpcie.c,v 1.7 2020/07/17 08:07:34 patrick Exp $	*/
 /*
  * Copyright (c) 2018 Mark Kettenis <kettenis@openbsd.org>
  * Copyright (c) 2020 Patrick Wildt <patrick@blueri.se>
@@ -233,11 +233,8 @@ void	mvkpcie_conf_write(void *, pcitag_t, int, pcireg_t);
 int	mvkpcie_intr_map(struct pci_attach_args *, pci_intr_handle_t *);
 const char *mvkpcie_intr_string(void *, pci_intr_handle_t);
 void	*mvkpcie_intr_establish(void *, pci_intr_handle_t, int,
-	    int (*)(void *), void *, char *);
+	    struct cpu_info *, int (*)(void *), void *, char *);
 void	mvkpcie_intr_disestablish(void *, void *);
-
-void	*mvkpcie_intr_establish(void *, pci_intr_handle_t, int,
-	    int (*)(void *), void *, char *);
 
 int	mvkpcie_bs_iomap(bus_space_tag_t, bus_addr_t, bus_size_t, int,
 	    bus_space_handle_t *);
@@ -246,8 +243,9 @@ int	mvkpcie_bs_memmap(bus_space_tag_t, bus_addr_t, bus_size_t, int,
 
 int	mvkpcie_intc_intr(void *);
 void	*mvkpcie_intc_intr_establish_msi(void *, uint64_t *, uint64_t *,
-	    int , int (*)(void *), void *, char *);
+	    int , struct cpu_info *, int (*)(void *), void *, char *);
 void	mvkpcie_intc_intr_disestablish_msi(void *);
+void	mvkpcie_intc_intr_barrier(void *);
 void	mvkpcie_intc_recalc_ipl(struct mvkpcie_softc *);
 
 struct mvkpcie_dmamem *mvkpcie_dmamem_alloc(struct mvkpcie_softc *, bus_size_t,
@@ -535,6 +533,7 @@ mvkpcie_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_msi_ic.ic_cookie = self;
 	sc->sc_msi_ic.ic_establish_msi = mvkpcie_intc_intr_establish_msi;
 	sc->sc_msi_ic.ic_disestablish = mvkpcie_intc_intr_disestablish_msi;
+	sc->sc_msi_ic.ic_barrier = mvkpcie_intc_intr_barrier;
 	arm_intr_register_fdt(&sc->sc_msi_ic);
 
 	config_found(self, &pba, NULL);
@@ -734,7 +733,7 @@ mvkpcie_intr_string(void *v, pci_intr_handle_t ih)
 
 void *
 mvkpcie_intr_establish(void *v, pci_intr_handle_t ih, int level,
-    int (*func)(void *), void *arg, char *name)
+    struct cpu_info *ci, int (*func)(void *), void *arg, char *name)
 {
 	struct mvkpcie_softc *sc = v;
 	void *cookie;
@@ -746,8 +745,8 @@ mvkpcie_intr_establish(void *v, pci_intr_handle_t ih, int level,
 
 		/* Assume hardware passes Requester ID as sideband data. */
 		data = pci_requester_id(ih.ih_pc, ih.ih_tag);
-		cookie = fdt_intr_establish_msi(sc->sc_node, &addr,
-		    &data, level, func, arg, (void *)name);
+		cookie = fdt_intr_establish_msi_cpu(sc->sc_node, &addr,
+		    &data, level, ci, func, arg, (void *)name);
 		if (cookie == NULL)
 			return NULL;
 
@@ -768,8 +767,8 @@ mvkpcie_intr_establish(void *v, pci_intr_handle_t ih, int level,
 		reg[1] = reg[2] = 0;
 		reg[3] = ih.ih_intrpin;
 
-		cookie = fdt_intr_establish_imap(sc->sc_node, reg,
-		    sizeof(reg), level, func, arg, name);
+		cookie = fdt_intr_establish_imap_cpu(sc->sc_node, reg,
+		    sizeof(reg), level, ci, func, arg, name);
 	}
 
 	return cookie;
@@ -861,11 +860,14 @@ mvkpcie_intc_intr(void *cookie)
 
 void *
 mvkpcie_intc_intr_establish_msi(void *cookie, uint64_t *addr, uint64_t *data,
-    int level, int (*func)(void *), void *arg, char *name)
+    int level, struct cpu_info *ci, int (*func)(void *), void *arg, char *name)
 {
 	struct mvkpcie_softc *sc = (struct mvkpcie_softc *)cookie;
 	struct intrhand *ih;
 	int i, s;
+
+	if (ci != NULL && !CPU_IS_PRIMARY(ci))
+		return NULL;
 
 	for (i = 0; i < nitems(sc->sc_msi_handlers); i++) {
 		if (sc->sc_msi_handlers[i] == NULL)
@@ -916,6 +918,15 @@ mvkpcie_intc_intr_disestablish_msi(void *cookie)
 	mvkpcie_intc_recalc_ipl(sc);
 
 	splx(s);
+}
+
+void
+mvkpcie_intc_intr_barrier(void *cookie)
+{
+	struct intrhand *ih = cookie;
+	struct mvkpcie_softc *sc = ih->ih_sc;
+
+	intr_barrier(sc->sc_ih);
 }
 
 void

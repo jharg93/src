@@ -1,4 +1,4 @@
-/*	$OpenBSD: ikev2.c,v 1.232 2020/06/15 18:37:37 tobhe Exp $	*/
+/*	$OpenBSD: ikev2.c,v 1.237 2020/07/21 08:03:38 tobhe Exp $	*/
 
 /*
  * Copyright (c) 2019 Tobias Heider <tobias.heider@stusta.de>
@@ -70,6 +70,7 @@ int	 ikev2_ike_auth_compatible(struct iked_sa *, uint8_t, uint8_t);
 int	 ikev2_ike_auth_recv(struct iked *, struct iked_sa *,
 	    struct iked_message *);
 int	 ikev2_ike_auth(struct iked *, struct iked_sa *);
+int	 ikev2_auth_verify(struct iked *, struct iked_sa *);
 
 void	 ikev2_init_recv(struct iked *, struct iked_message *,
 	    struct ike_header *);
@@ -105,6 +106,7 @@ int	 ikev2_resp_create_child_sa(struct iked *, struct iked_message *);
 void	 ikev2_ike_sa_rekey(struct iked *, void *);
 void	 ikev2_ike_sa_rekey_timeout(struct iked *, void *);
 void	 ikev2_ike_sa_rekey_schedule(struct iked *, struct iked_sa *);
+void	 ikev2_ike_sa_rekey_schedule_fast(struct iked *, struct iked_sa *);
 void	 ikev2_ike_sa_alive(struct iked *, void *);
 void	 ikev2_ike_sa_keepalive(struct iked *, void *);
 
@@ -290,24 +292,46 @@ ikev2_dispatch_cert(int fd, struct privsep_proc *p, struct imsg *imsg)
 
 		break;
 	case IMSG_CERTVALID:
-	case IMSG_CERTINVALID:
 		/* Ignore invalid or unauthenticated SAs */
 		if ((sa = ikev2_getimsgdata(env, imsg,
 		    &sh, &type, &ptr, &len)) == NULL ||
 		    sa->sa_state < IKEV2_STATE_EAP)
 			break;
 
-		if (imsg->hdr.type == IMSG_CERTVALID) {
-			log_debug("%s: peer certificate is valid", __func__);
-			sa_stateflags(sa, IKED_REQ_CERTVALID);
-		} else {
-			log_warnx("%s: peer certificate is invalid",
-			    SPI_SA(sa, __func__));
-			ikev2_send_auth_failed(env, sa);
+		if (sh.sh_initiator)
+			id = &sa->sa_rcert;
+		else
+			id = &sa->sa_icert;
+
+		id->id_type = type;
+		id->id_offset = 0;
+		ibuf_release(id->id_buf);
+		id->id_buf = NULL;
+
+		if (len > 0 && (id->id_buf = ibuf_new(ptr, len)) == NULL) {
+			log_debug("%s: failed to get cert payload",
+			    __func__);
 			break;
 		}
+
+		if (sa->sa_peerauth.id_type && ikev2_auth_verify(env, sa))
+			break;
+
+		log_debug("%s: peer certificate is valid", __func__);
+		sa_stateflags(sa, IKED_REQ_CERTVALID);
+
 		if (ikev2_ike_auth(env, sa) != 0)
 			log_debug("%s: failed to send ike auth", __func__);
+		break;
+	case IMSG_CERTINVALID:
+		/* Ignore invalid or unauthenticated SAs */
+		if ((sa = ikev2_getimsgdata(env, imsg,
+		    &sh, &type, &ptr, &len)) == NULL ||
+		    sa->sa_state < IKEV2_STATE_EAP)
+			break;
+		log_warnx("%s: peer certificate is invalid",
+			SPI_SA(sa, __func__));
+		ikev2_send_auth_failed(env, sa);
 		break;
 	case IMSG_CERT:
 		if ((sa = ikev2_getimsgdata(env, imsg,
@@ -708,14 +732,95 @@ ikev2_ike_auth_compatible(struct iked_sa *sa, uint8_t policy, uint8_t wire)
 }
 
 int
+ikev2_auth_verify(struct iked *env, struct iked_sa *sa)
+{
+	struct iked_auth	 ikeauth;
+	struct ibuf		*authmsg;
+	int			 ret;
+
+	memcpy(&ikeauth, &sa->sa_policy->pol_auth,
+	    sizeof(ikeauth));
+
+	if (sa->sa_policy->pol_auth.auth_eap &&
+	    sa->sa_eapmsk != NULL) {
+		/*
+		 * The initiator EAP auth is a PSK derived
+		 * from the EAP-specific MSK
+		 */
+		ikeauth.auth_method = IKEV2_AUTH_SHARED_KEY_MIC;
+
+		/* Copy session key as PSK */
+		memcpy(ikeauth.auth_data,
+		    ibuf_data(sa->sa_eapmsk),
+		    ibuf_size(sa->sa_eapmsk));
+		ikeauth.auth_length = ibuf_size(sa->sa_eapmsk);
+	}
+
+	if (ikev2_ike_auth_compatible(sa,
+	    ikeauth.auth_method, sa->sa_peerauth.id_type) < 0) {
+		log_warnx("%s: unexpected auth method %s, was "
+		    "expecting %s", SPI_SA(sa, __func__),
+		    print_map(sa->sa_peerauth.id_type,
+		    ikev2_auth_map),
+		    print_map(ikeauth.auth_method,
+		    ikev2_auth_map));
+		return (-1);
+	}
+	ikeauth.auth_method = sa->sa_peerauth.id_type;
+
+	if ((authmsg = ikev2_msg_auth(env, sa,
+	    sa->sa_hdr.sh_initiator)) == NULL) {
+		log_debug("%s: failed to get auth data",
+		    __func__);
+		return (-1);
+	}
+
+	ret = ikev2_msg_authverify(env, sa, &ikeauth,
+	    ibuf_data(sa->sa_peerauth.id_buf),
+	    ibuf_length(sa->sa_peerauth.id_buf),
+	    authmsg);
+	ibuf_release(authmsg);
+	if (ret != 0) {
+		log_info("%s: ikev2_msg_authverify failed",
+		    SPI_SA(sa, __func__));
+		ikev2_send_auth_failed(env, sa);
+		return (-1);
+	}
+	if (sa->sa_eapmsk != NULL) {
+		if ((authmsg = ikev2_msg_auth(env, sa,
+		    !sa->sa_hdr.sh_initiator)) == NULL) {
+			log_debug("%s: failed to get auth data",
+			    __func__);
+			return (-1);
+		}
+
+		/* XXX 2nd AUTH for EAP messages */
+		ret = ikev2_msg_authsign(env, sa, &ikeauth, authmsg);
+		ibuf_release(authmsg);
+		if (ret != 0) {
+			ikev2_send_auth_failed(env, sa);
+			return (-1);
+		}
+
+		/* ikev2_msg_authverify verified AUTH */
+		sa_stateflags(sa, IKED_REQ_AUTHVALID);
+		sa_stateflags(sa, IKED_REQ_EAPVALID);
+		sa_state(env, sa, IKEV2_STATE_EAP_SUCCESS);
+	}
+
+	return (0);
+}
+
+int
 ikev2_ike_auth_recv(struct iked *env, struct iked_sa *sa,
     struct iked_message *msg)
 {
 	struct iked_id		*id, *certid;
 	struct ibuf		*authmsg;
-	struct iked_auth	 ikeauth;
 	struct iked_policy	*policy = sa->sa_policy;
-	int			 ret = -1;
+	uint8_t			*cert = NULL;
+	size_t			 certlen = 0;
+	int			 certtype = IKEV2_CERT_NONE;
 
 	/* The AUTH payload indicates if the responder wants EAP or not */
 	if (msg->msg_auth.id_type != IKEV2_AUTH_NONE &&
@@ -744,18 +849,26 @@ ikev2_ike_auth_recv(struct iked *env, struct iked_sa *sa,
 			log_info("%s: no compatible policy found",
 			    SPI_SA(sa, __func__));
 			ikev2_send_auth_failed(env, sa);
+			TAILQ_REMOVE(&old->pol_sapeers, sa, sa_peer_entry);
+			if (old->pol_flags & IKED_POLICY_REFCNT)
+				policy_unref(env, old);
 			return (-1);
 		}
 		if (msg->msg_policy != old) {
-			/* move sa to new policy */
-			policy = sa->sa_policy = msg->msg_policy;
+			/* Clean up old policy */
 			TAILQ_REMOVE(&old->pol_sapeers, sa, sa_peer_entry);
-			TAILQ_INSERT_TAIL(&policy->pol_sapeers,
-			    sa, sa_peer_entry);
 			if (old->pol_flags & IKED_POLICY_REFCNT)
 				policy_unref(env, old);
-			if (policy->pol_flags & IKED_POLICY_REFCNT)
-				policy_ref(env, policy);
+
+			/* Update SA with new policy*/
+			if (sa_new(env, sa->sa_hdr.sh_ispi,
+			    sa->sa_hdr.sh_rspi, 0, msg->msg_policy) != sa) {
+				log_warnx("%s: failed to update SA",
+				    SPI_SA(sa, __func__));
+				ikev2_send_auth_failed(env, sa);
+				return (-1);
+			}
+			policy = sa->sa_policy;
 		} else {
 			/* restore */
 			msg->msg_policy = sa->sa_policy = old;
@@ -781,86 +894,6 @@ ikev2_ike_auth_recv(struct iked *env, struct iked_sa *sa,
 		}
 	}
 
-	if (msg->msg_cert.id_type) {
-		memcpy(certid, &msg->msg_cert, sizeof(*certid));
-		bzero(&msg->msg_cert, sizeof(msg->msg_cert));
-
-		ca_setcert(env, &sa->sa_hdr,
-		    id, certid->id_type,
-		    ibuf_data(certid->id_buf),
-		    ibuf_length(certid->id_buf), PROC_CERT);
-	}
-
-	if (msg->msg_auth.id_type) {
-		memcpy(&ikeauth, &policy->pol_auth, sizeof(ikeauth));
-
-		if (policy->pol_auth.auth_eap && sa->sa_eapmsk != NULL) {
-			/*
-			 * The initiator EAP auth is a PSK derived
-			 * from the EAP-specific MSK
-			 */
-			ikeauth.auth_method = IKEV2_AUTH_SHARED_KEY_MIC;
-
-			/* Copy session key as PSK */
-			memcpy(ikeauth.auth_data, ibuf_data(sa->sa_eapmsk),
-			    ibuf_size(sa->sa_eapmsk));
-			ikeauth.auth_length = ibuf_size(sa->sa_eapmsk);
-		}
-
-		if (ikev2_ike_auth_compatible(sa,
-		    ikeauth.auth_method, msg->msg_auth.id_type) < 0) {
-			log_warnx("%s: unexpected auth method %s, was "
-			    "expecting %s", SPI_SA(sa, __func__),
-			    print_map(msg->msg_auth.id_type, ikev2_auth_map),
-			    print_map(ikeauth.auth_method, ikev2_auth_map));
-			return (-1);
-		}
-		ikeauth.auth_method = msg->msg_auth.id_type;
-
-		if ((authmsg = ikev2_msg_auth(env, sa,
-		    sa->sa_hdr.sh_initiator)) == NULL) {
-			log_debug("%s: failed to get auth data", __func__);
-			return (-1);
-		}
-
-		ret = ikev2_msg_authverify(env, sa, &ikeauth,
-		    ibuf_data(msg->msg_auth.id_buf),
-		    ibuf_length(msg->msg_auth.id_buf),
-		    authmsg);
-		ibuf_release(authmsg);
-
-		if (ret != 0) {
-			log_info("%s: ikev2_msg_authverify failed",
-			    SPI_SA(sa, __func__));
-			ikev2_send_auth_failed(env, sa);
-			return (-1);
-		}
-
-		if (sa->sa_eapmsk != NULL) {
-			if ((authmsg = ikev2_msg_auth(env, sa,
-			    !sa->sa_hdr.sh_initiator)) == NULL) {
-				log_debug("%s: failed to get auth data",
-				    __func__);
-				return (-1);
-			}
-
-			/* XXX 2nd AUTH for EAP messages */
-			ret = ikev2_msg_authsign(env, sa, &ikeauth, authmsg);
-			ibuf_release(authmsg);
-
-			if (ret != 0) {
-				/* XXX */
-				return (-1);
-			}
-
-			/* ikev2_msg_authverify verified AUTH */
-			sa_stateflags(sa, IKED_REQ_AUTHVALID);
-			sa_stateflags(sa, IKED_REQ_EAPVALID);
-
-			sa_state(env, sa, IKEV2_STATE_EAP_SUCCESS);
-		}
-	}
-
 	if (!TAILQ_EMPTY(&msg->msg_proposals)) {
 		if (proposals_negotiate(&sa->sa_proposals,
 		    &sa->sa_policy->pol_proposals, &msg->msg_proposals,
@@ -872,15 +905,34 @@ ikev2_ike_auth_recv(struct iked *env, struct iked_sa *sa,
 			sa_stateflags(sa, IKED_REQ_SA);
 	}
 
+	if (msg->msg_auth.id_type) {
+		memcpy(&sa->sa_peerauth, &msg->msg_auth, sizeof(sa->sa_peerauth));
+		bzero(&msg->msg_auth, sizeof(msg->msg_auth));
+	}
+
+	/* For EAP and PSK AUTH can be verified without the CA process*/
+	if ((sa->sa_policy->pol_auth.auth_eap &&
+	    sa->sa_eapmsk != NULL) ||
+	    sa->sa_policy->pol_auth.auth_method == IKEV2_AUTH_SHARED_KEY_MIC)
+		ikev2_auth_verify(env, sa);
+	/* For CERT and Pubkey AUTH the CA process must find a matching key */
+	else if (sa->sa_peerauth.id_type) {
+		if (msg->msg_cert.id_type) {
+			certtype = msg->msg_cert.id_type;
+			cert = ibuf_data(msg->msg_cert.id_buf);
+			certlen = ibuf_length(msg->msg_cert.id_buf);
+			bzero(&msg->msg_cert, sizeof(msg->msg_cert));
+		}
+		if (ca_setcert(env, &sa->sa_hdr, id, certtype, cert, certlen, PROC_CERT) == -1)
+			return (-1);
+	}
+
 	return ikev2_ike_auth(env, sa);
 }
 
 int
 ikev2_ike_auth(struct iked *env, struct iked_sa *sa)
 {
-	struct iked_policy	*pol = sa->sa_policy;
-	uint8_t			 certreqtype;
-
 	/* Attempt state transition */
 	if (sa->sa_state == IKEV2_STATE_EAP_SUCCESS)
 		sa_state(env, sa, IKEV2_STATE_EAP_VALID);
@@ -890,31 +942,12 @@ ikev2_ike_auth(struct iked *env, struct iked_sa *sa)
 	if (sa->sa_hdr.sh_initiator) {
 		if (sa_stateok(sa, IKEV2_STATE_AUTH_SUCCESS))
 			return (ikev2_init_done(env, sa));
+		/* AUTH exchange is awaiting response from CA process, ignore */
+		else if (sa_stateok(sa, IKEV2_STATE_AUTH_REQUEST))
+			return (0);
 		else
 			return (ikev2_init_ike_auth(env, sa));
 	}
-
-	/*
-	 * If we have to send a local certificate but did not receive an
-	 * optional CERTREQ, use our own certreq to find a local certificate.
-	 * We could alternatively extract the CA from the peer certificate
-	 * to find a matching local one.
-	 */
-	if (sa->sa_statevalid & IKED_REQ_CERT) {
-		if ((sa->sa_stateflags & IKED_REQ_CERTREQ) == 0) {
-			log_debug("%s: no CERTREQ, using default", __func__);
-			if (pol->pol_certreqtype)
-				certreqtype = pol->pol_certreqtype;
-			else
-				certreqtype = env->sc_certreqtype;
-			return (ca_setreq(env, sa,
-			    &pol->pol_localid, certreqtype, 0,
-			    ibuf_data(env->sc_certreq),
-			    ibuf_size(env->sc_certreq), PROC_CERT));
-		} else if ((sa->sa_stateflags & IKED_REQ_CERT) == 0)
-			return (0);	/* ignored, wait for cert */
-	}
-
 	return (ikev2_resp_ike_auth(env, sa));
 }
 
@@ -1478,6 +1511,7 @@ ikev2_policy2id(struct iked_static_id *polid, struct iked_id *id, int srcid)
 	hdr.id_type = id->id_type = polid->id_type;
 	id->id_offset = sizeof(hdr);
 
+	ibuf_free(id->id_buf);
 	if ((id->id_buf = ibuf_new(&hdr, sizeof(hdr))) == NULL)
 		return (-1);
 
@@ -1610,7 +1644,6 @@ ikev2_add_ts_payload(struct ibuf *buf, unsigned int type, struct iked_sa *sa)
 
 	if ((tsp = ibuf_advance(buf, sizeof(*tsp))) == NULL)
 		return (-1);
-	tsp->tsp_count = pol->pol_nflows;
 	len = sizeof(*tsp);
 
 	if (type == IKEV2_PAYLOAD_TSi) {
@@ -2678,6 +2711,9 @@ ikev2_handle_notifies(struct iked *env, struct iked_message *msg)
 	if (msg->msg_flags & IKED_MSG_FLAGS_USE_TRANSPORT)
 		sa->sa_use_transport_mode = 1;
 
+	if ((msg->msg_flags & IKED_MSG_FLAGS_TEMPORARY_FAILURE)
+	    && sa->sa_nexti != NULL)
+		sa->sa_tmpfail = 1;
 	return (0);
 }
 
@@ -3009,7 +3045,8 @@ ikev2_handle_certreq(struct iked* env, struct iked_message *msg)
 {
 	struct iked_certreq	*cr;
 	struct iked_sa		*sa;
-	uint8_t more;
+	uint8_t			 crtype;
+	uint8_t	more;
 
 	if ((sa = msg->msg_sa) == NULL)
 		return (-1);
@@ -3018,25 +3055,42 @@ ikev2_handle_certreq(struct iked* env, struct iked_message *msg)
 	if (sa->sa_policy->pol_auth.auth_method == IKEV2_AUTH_SHARED_KEY_MIC)
 		return (0);
 
-	while ((cr = SLIST_FIRST(&msg->msg_certreqs))) {
-		if (sa->sa_hdr.sh_initiator)
-			sa->sa_stateinit |= IKED_REQ_CERT;
+	if (sa->sa_hdr.sh_initiator)
+		sa->sa_stateinit |= IKED_REQ_CERT;
+	else
+		sa->sa_statevalid |= IKED_REQ_CERT;
+
+	/*
+	 * If we have to send a local certificate but did not receive an
+	 * optional CERTREQ, use our own certreq to find a local certificate.
+	 * We could alternatively extract the CA from the peer certificate
+	 * to find a matching local one.
+	 */
+	if (SLIST_EMPTY(&msg->msg_certreqs)) {
+		if (sa->sa_policy->pol_certreqtype)
+			crtype = sa->sa_policy->pol_certreqtype;
 		else
-			sa->sa_statevalid |= IKED_REQ_CERT;
+			crtype = env->sc_certreqtype;
+		ca_setreq(env, sa, &sa->sa_policy->pol_localid,
+		    crtype, 0, ibuf_data(env->sc_certreq),
+		    ibuf_size(env->sc_certreq), PROC_CERT);
+	} else {
+		while ((cr = SLIST_FIRST(&msg->msg_certreqs))) {
 
-		if (SLIST_NEXT(cr, cr_entry) != NULL)
-			more = 1;
-		else
-			more = 0;
+			if (SLIST_NEXT(cr, cr_entry) != NULL)
+				more = 1;
+			else
+				more = 0;
 
-		ca_setreq(env, sa, &sa->sa_policy->pol_localid, cr->cr_type,
-		    more, ibuf_data(cr->cr_data),
-		    ibuf_length(cr->cr_data),
-		    PROC_CERT);
+			ca_setreq(env, sa, &sa->sa_policy->pol_localid,
+			    cr->cr_type, more, ibuf_data(cr->cr_data),
+			    ibuf_length(cr->cr_data),
+			    PROC_CERT);
 
-		ibuf_release(cr->cr_data);
-		SLIST_REMOVE_HEAD(&msg->msg_certreqs, cr_entry);
-		free(cr);
+			ibuf_release(cr->cr_data);
+			SLIST_REMOVE_HEAD(&msg->msg_certreqs, cr_entry);
+			free(cr);
+		}
 	}
 
 	return (0);
@@ -3527,10 +3581,10 @@ ikev2_ike_sa_rekey(struct iked *env, void *arg)
 	if (sa->sa_stateflags & IKED_REQ_CHILDSA) {
 		/*
 		 * We cannot initiate multiple concurrent CREATE_CHILD_SA
-		 * exchanges, so retry in one minute.
+		 * exchanges, so retry again fast.
 		 */
 		log_info("%s: busy, delaying rekey", SPI_SA(sa, __func__));
-		timer_add(env, &sa->sa_rekey, 60);
+		ikev2_ike_sa_rekey_schedule_fast(env, sa);
 		return;
 	}
 
@@ -3598,6 +3652,7 @@ ikev2_ike_sa_rekey(struct iked *env, void *arg)
 		sa->sa_stateflags |= IKED_REQ_CHILDSA;
 		sa->sa_nexti = nsa;
 		nsa->sa_previ = sa;
+		sa->sa_tmpfail = 0;
 		nsa = NULL;
 	}
 done:
@@ -3646,6 +3701,17 @@ ikev2_init_create_child_sa(struct iked *env, struct iked_message *msg)
 	if (!ikev2_msg_frompeer(msg) ||
 	    (sa->sa_stateflags & IKED_REQ_CHILDSA) == 0)
 		return (0);
+
+	if (sa->sa_nexti != NULL && sa->sa_tmpfail) {
+		sa->sa_stateflags &= ~IKED_REQ_CHILDSA;
+		ikev2_ike_sa_setreason(sa->sa_nexti, "tmpfail");
+		sa_free(env, sa->sa_nexti);
+		sa->sa_nexti = NULL;
+		timer_set(env, &sa->sa_rekey, ikev2_ike_sa_rekey, sa);
+		ikev2_ike_sa_rekey_schedule_fast(env, sa);
+		log_info("%s: IKESA rekey delayed", SPI_SA(sa, __func__));
+		return (0);
+	}
 
 	if (msg->msg_prop == NULL ||
 	    TAILQ_EMPTY(&msg->msg_proposals)) {
@@ -4345,6 +4411,19 @@ ikev2_ike_sa_rekey_schedule(struct iked *env, struct iked_sa *sa)
 {
 	timer_add(env, &sa->sa_rekey, (sa->sa_policy->pol_rekey * 850 +
 	    arc4random_uniform(100)) / 1000);
+}
+
+/* rekey delayed, so re-try after short delay (1% of configured) */
+void
+ikev2_ike_sa_rekey_schedule_fast(struct iked *env, struct iked_sa *sa)
+{
+	int timeout = sa->sa_policy->pol_rekey / 100; /* 1% */
+
+	if (timeout > 60)
+		timeout = 60;	/* max */
+	else if (timeout < 4)
+		timeout = 4;	/* min */
+	timer_add(env, &sa->sa_rekey, timeout);
 }
 
 void
@@ -5973,6 +6052,8 @@ ikev2_rekey_sa(struct iked *env, struct iked_spi *rekey)
 	}
 	if (sa->sa_stateflags & IKED_REQ_CHILDSA)
 		return (-1);	/* busy, retry later */
+	if (sa->sa_tmpfail)
+		return (-1);	/* peer is busy, retry later */
 	if (csa->csa_allocated)	/* Peer SPI died first, get the local one */
 		rekey->spi = csa->csa_peerspi;
 	if (ikev2_send_create_child_sa(env, sa, rekey, rekey->spi_protoid))

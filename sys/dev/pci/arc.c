@@ -1,4 +1,4 @@
-/*	$OpenBSD: arc.c,v 1.113 2020/06/27 17:28:58 krw Exp $ */
+/*	$OpenBSD: arc.c,v 1.119 2020/07/24 12:43:31 krw Exp $ */
 
 /*
  * Copyright (c) 2006 David Gwynne <dlg@openbsd.org>
@@ -543,7 +543,6 @@ struct arc_ccb {
 struct arc_softc {
 	struct device		sc_dev;
 	const struct arc_iop	*sc_iop;
-	struct scsi_link	sc_link;
 
 	pci_chipset_tag_t	sc_pc;
 	pcitag_t		sc_tag;
@@ -771,7 +770,6 @@ arc_attach(struct device *parent, struct device *self, void *aux)
 	struct arc_softc		*sc = (struct arc_softc *)self;
 	struct pci_attach_args		*pa = aux;
 	struct scsibus_attach_args	saa;
-	struct device			*child;
 
 	sc->sc_talking = 0;
 	rw_init(&sc->sc_lock, "arcmsg");
@@ -802,17 +800,18 @@ arc_attach(struct device *parent, struct device *self, void *aux)
 		goto unmap_pci;
 	}
 
-	sc->sc_link.adapter = &arc_switch;
-	sc->sc_link.adapter_softc = sc;
-	sc->sc_link.adapter_target = SDEV_NO_ADAPTER_TARGET;
-	sc->sc_link.adapter_buswidth = ARC_MAX_TARGET;
-	sc->sc_link.openings = sc->sc_req_count;
-	sc->sc_link.pool = &sc->sc_iopool;
+	saa.saa_adapter = &arc_switch;
+	saa.saa_adapter_softc = sc;
+	saa.saa_adapter_target = SDEV_NO_ADAPTER_TARGET;
+	saa.saa_adapter_buswidth = ARC_MAX_TARGET;
+	saa.saa_luns = 8;
+	saa.saa_openings = sc->sc_req_count;
+	saa.saa_pool = &sc->sc_iopool;
+	saa.saa_quirks = saa.saa_flags = 0;
+	saa.saa_wwpn = saa.saa_wwnn = 0;
 
-	saa.saa_sc_link = &sc->sc_link;
-
-	child = config_found(self, &saa, scsiprint);
-	sc->sc_scsibus = (struct scsibus_softc *)child;
+	sc->sc_scsibus = (struct scsibus_softc *)config_found(self, &saa,
+	    scsiprint);
 
 	/* enable interrupts */
 	arc_enable_all_intr(sc);
@@ -1118,7 +1117,7 @@ void
 arc_scsi_cmd(struct scsi_xfer *xs)
 {
 	struct scsi_link		*link = xs->sc_link;
-	struct arc_softc		*sc = link->adapter_softc;
+	struct arc_softc		*sc = link->bus->sb_adapter_softc;
 	struct arc_ccb			*ccb;
 	struct arc_msg_scsicmd		*cmd;
 	u_int32_t			reg, cdb_len;
@@ -1554,7 +1553,7 @@ arc_chipA_firmware(struct arc_softc *sc)
 	DNPRINTF(ARC_D_INIT, "%s: sdram_size: %d\n", DEVNAME(sc),
 	    letoh32(fwinfo.sdram_size));
 	DNPRINTF(ARC_D_INIT, "%s: sata_ports: %d\n", DEVNAME(sc),
-	    letoh32(fwinfo.sata_ports), letoh32(fwinfo.sata_ports));
+	    letoh32(fwinfo.sata_ports));
 
 	scsi_strvis(string, fwinfo.vendor, sizeof(fwinfo.vendor));
 	DNPRINTF(ARC_D_INIT, "%s: vendor: \"%s\"\n", DEVNAME(sc), string);
@@ -1638,7 +1637,7 @@ arc_chipC_firmware(struct arc_softc *sc)
 	DNPRINTF(ARC_D_INIT, "%s: sdram_size: %d\n", DEVNAME(sc),
 	    letoh32(fwinfo.sdram_size));
 	DNPRINTF(ARC_D_INIT, "%s: sata_ports: %d\n", DEVNAME(sc),
-	    letoh32(fwinfo.sata_ports), letoh32(fwinfo.sata_ports));
+	    letoh32(fwinfo.sata_ports));
 
 	scsi_strvis(string, fwinfo.vendor, sizeof(fwinfo.vendor));
 	DNPRINTF(ARC_D_INIT, "%s: vendor: \"%s\"\n", DEVNAME(sc), string);
@@ -1712,7 +1711,7 @@ arc_chipD_firmware(struct arc_softc *sc)
 	DNPRINTF(ARC_D_INIT, "%s: sdram_size: %d\n", DEVNAME(sc),
 	    letoh32(fwinfo.sdram_size));
 	DNPRINTF(ARC_D_INIT, "%s: sata_ports: %d\n", DEVNAME(sc),
-	    letoh32(fwinfo.sata_ports), letoh32(fwinfo.sata_ports));
+	    letoh32(fwinfo.sata_ports));
 
 	scsi_strvis(string, fwinfo.vendor, sizeof(fwinfo.vendor));
 	DNPRINTF(ARC_D_INIT, "%s: vendor: \"%s\"\n", DEVNAME(sc), string);
@@ -2280,7 +2279,7 @@ arc_msgbuf(struct arc_softc *sc, void *wptr, size_t wbuflen, void *rptr,
 	int				i;
 #endif
 
-	DPRINTF("%s: arc_msgbuf wbuflen: %d rbuflen: %d\n",
+	DPRINTF("%s: arc_msgbuf wbuflen: %zu rbuflen: %zu\n",
 	    DEVNAME(sc), wbuflen, rbuflen);
 
 	switch(sc->sc_adp_type) {
@@ -2484,8 +2483,8 @@ arc_msgbuf(struct arc_softc *sc, void *wptr, size_t wbuflen, void *rptr,
 	}
 
 	if (bufhdr->len != htole16(rbuflen)) {
-		DNPRINTF(ARC_D_DB, "%s:  get_len: 0x%x, req_len: 0x%x\n",
-			DEVNAME(sc), bufhdr->len, rbuflen);
+		DNPRINTF(ARC_D_DB, "%s:  get_len: 0x%x, req_len: 0x%zu\n",
+		    DEVNAME(sc), bufhdr->len, rbuflen);
 	}
 
 	bcopy(rbuf + sizeof(struct arc_fw_bufhdr), rptr, bufhdr->len);
@@ -2712,7 +2711,7 @@ arc_read(struct arc_softc *sc, bus_size_t r)
 	    BUS_SPACE_BARRIER_READ);
 	v = bus_space_read_4(sc->sc_iot, sc->sc_ioh, r);
 
-	DNPRINTF(ARC_D_RW, "%s: arc_read 0x%x 0x%08x\n", DEVNAME(sc), r, v);
+	DNPRINTF(ARC_D_RW, "%s: arc_read 0x%lx 0x%08x\n", DEVNAME(sc), r, v);
 
 	return (v);
 }
@@ -2728,7 +2727,7 @@ arc_read_region(struct arc_softc *sc, bus_size_t r, void *buf, size_t len)
 void
 arc_write(struct arc_softc *sc, bus_size_t r, u_int32_t v)
 {
-	DNPRINTF(ARC_D_RW, "%s: arc_write 0x%x 0x%08x\n", DEVNAME(sc), r, v);
+	DNPRINTF(ARC_D_RW, "%s: arc_write 0x%lx 0x%08x\n", DEVNAME(sc), r, v);
 
 	bus_space_write_4(sc->sc_iot, sc->sc_ioh, r, v);
 	bus_space_barrier(sc->sc_iot, sc->sc_ioh, r, 4,
@@ -2749,7 +2748,7 @@ arc_wait_eq(struct arc_softc *sc, bus_size_t r, u_int32_t mask,
 {
 	int				i;
 
-	DNPRINTF(ARC_D_RW, "%s: arc_wait_eq 0x%x 0x%08x 0x%08x\n",
+	DNPRINTF(ARC_D_RW, "%s: arc_wait_eq 0x%lx 0x%08x 0x%08x\n",
 	    DEVNAME(sc), r, mask, target);
 
 	for (i = 0; i < 10000; i++) {
@@ -2767,7 +2766,7 @@ arc_wait_ne(struct arc_softc *sc, bus_size_t r, u_int32_t mask,
 {
 	int				i;
 
-	DNPRINTF(ARC_D_RW, "%s: arc_wait_ne 0x%x 0x%08x 0x%08x\n",
+	DNPRINTF(ARC_D_RW, "%s: arc_wait_ne 0x%lx 0x%08x 0x%08x\n",
 	    DEVNAME(sc), r, mask, target);
 
 	for (i = 0; i < 10000; i++) {

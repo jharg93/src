@@ -1,4 +1,4 @@
-/*	$OpenBSD: aac.c,v 1.80 2020/06/27 17:28:58 krw Exp $	*/
+/*	$OpenBSD: aac.c,v 1.85 2020/07/20 20:38:10 krw Exp $	*/
 
 /*-
  * Copyright (c) 2000 Michael Smith
@@ -266,16 +266,17 @@ aac_attach(struct aac_softc *sc)
 	if (error)
 		return (error);
 
-	/* Fill in the prototype scsi_link. */
-	sc->aac_link.adapter_softc = sc;
-	sc->aac_link.adapter = &aac_switch;
-	sc->aac_link.openings = (sc->total_fibs - 8) /
-	    (sc->aac_container_count ? sc->aac_container_count : 1);
-	sc->aac_link.adapter_buswidth = AAC_MAX_CONTAINERS;
-	sc->aac_link.adapter_target = SDEV_NO_ADAPTER_TARGET;
-	sc->aac_link.pool = &sc->aac_iopool;
 
-	saa.saa_sc_link = &sc->aac_link;
+	saa.saa_adapter_softc = sc;
+	saa.saa_adapter = &aac_switch;
+	saa.saa_adapter_buswidth = AAC_MAX_CONTAINERS;
+	saa.saa_adapter_target = SDEV_NO_ADAPTER_TARGET;
+	saa.saa_luns = 8;
+	saa.saa_openings = (sc->total_fibs - 8) /
+	    (sc->aac_container_count ? sc->aac_container_count : 1);
+	saa.saa_pool = &sc->aac_iopool;
+	saa.saa_wwpn = saa.saa_wwnn = 0;
+	saa.saa_quirks = saa.saa_flags = 0;
 
 	config_found(&sc->aac_dev, &saa, scsiprint);
 
@@ -2099,7 +2100,7 @@ aac_eval_mapping(size, cyls, heads, secs)
 void
 aac_copy_internal_data(struct scsi_xfer *xs, u_int8_t *data, size_t size)
 {
-	struct aac_softc *sc = xs->sc_link->adapter_softc;
+	struct aac_softc *sc = xs->sc_link->bus->sb_adapter_softc;
 	size_t copy_cnt;
 
 	AAC_DPRINTF(AAC_D_MISC, ("%s: aac_copy_internal_data\n",
@@ -2119,7 +2120,7 @@ void
 aac_internal_cache_cmd(struct scsi_xfer *xs)
 {
 	struct scsi_link *link = xs->sc_link;
-	struct aac_softc *sc = link->adapter_softc;
+	struct aac_softc *sc = link->bus->sb_adapter_softc;
 	struct scsi_inquiry_data inq;
 	struct scsi_sense_data sd;
 	struct scsi_read_cap_data rcd;
@@ -2190,7 +2191,7 @@ void
 aac_scsi_cmd(struct scsi_xfer *xs)
 {
 	struct scsi_link *link = xs->sc_link;
-	struct aac_softc *sc = link->adapter_softc;
+	struct aac_softc *sc = link->bus->sb_adapter_softc;
 	u_int8_t target = link->target;
 	struct aac_command *cm;
 	u_int32_t blockno, blockcnt;
