@@ -47,12 +47,12 @@
  * Locks used to protect global variables in this file:
  *
  *	I	immutable after initialization
- *	T	timeout_mutex
+ *	t	timeout_mutex
  */
 struct mutex timeout_mutex = MUTEX_INITIALIZER(IPL_HIGH);
 
 void *softclock_si;			/* [I] softclock() interrupt handle */
-struct timeoutstat tostat;		/* [T] statistics and totals */
+struct timeoutstat tostat;		/* [t] statistics and totals */
 
 /*
  * Timeouts are kept in a hierarchical timing wheel. The to_time is the value
