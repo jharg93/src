@@ -1,4 +1,4 @@
-/*	$OpenBSD: rkgpio.c,v 1.4 2020/04/25 10:41:20 kettenis Exp $	*/
+/*	$OpenBSD: rkgpio.c,v 1.6 2020/07/17 08:07:34 patrick Exp $	*/
 /*
  * Copyright (c) 2017 Mark Kettenis <kettenis@openbsd.org>
  * Copyright (c) 2019 Patrick Wildt <patrick@blueri.se>
@@ -96,12 +96,13 @@ int	rkgpio_get_pin(void *, uint32_t *);
 void	rkgpio_set_pin(void *, uint32_t *, int);
 
 int	rkgpio_intr(void *);
-void	*rkgpio_intr_establish(void *, int *, int, int (*)(void *),
-	    void *, char *);
+void	*rkgpio_intr_establish(void *, int *, int, struct cpu_info *,
+	    int (*)(void *), void *, char *);
 void	rkgpio_intr_disestablish(void *);
 void	rkgpio_recalc_ipl(struct rkgpio_softc *);
 void	rkgpio_intr_enable(void *);
 void	rkgpio_intr_disable(void *);
+void	rkgpio_intr_barrier(void *);
 
 int
 rkgpio_match(struct device *parent, void *match, void *aux)
@@ -148,6 +149,7 @@ rkgpio_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_ic.ic_disestablish = rkgpio_intr_disestablish;
 	sc->sc_ic.ic_enable = rkgpio_intr_enable;
 	sc->sc_ic.ic_disable = rkgpio_intr_disable;
+	sc->sc_ic.ic_barrier = rkgpio_intr_barrier;
 	fdt_intr_register(&sc->sc_ic);
 
 	printf("\n");
@@ -236,7 +238,7 @@ rkgpio_intr(void *cookie)
 
 void *
 rkgpio_intr_establish(void *cookie, int *cells, int ipl,
-    int (*func)(void *), void *arg, char *name)
+    struct cpu_info *ci, int (*func)(void *), void *arg, char *name)
 {
 	struct rkgpio_softc	*sc = (struct rkgpio_softc *)cookie;
 	struct intrhand		*ih;
@@ -251,6 +253,9 @@ rkgpio_intr_establish(void *cookie, int *cells, int ipl,
 	if (sc->sc_handlers[irqno] != NULL)
 		panic("%s: irqnumber %d reused: %s", __func__,
 		     irqno, name);
+
+	if (ci != NULL && !CPU_IS_PRIMARY(ci))
+		return NULL;
 
 	ih = malloc(sizeof(*ih), M_DEVBUF, M_WAITOK);
 	ih->ih_func = func;
@@ -386,4 +391,13 @@ rkgpio_intr_disable(void *cookie)
 	s = splhigh();
 	HSET4(sc, GPIO_INTMASK, 1 << ih->ih_irq);
 	splx(s);
+}
+
+void
+rkgpio_intr_barrier(void *cookie)
+{
+	struct intrhand		*ih = cookie;
+	struct rkgpio_softc	*sc = ih->ih_sc;
+
+	intr_barrier(sc->sc_ih);
 }

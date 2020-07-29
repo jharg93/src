@@ -1,4 +1,4 @@
-/*	$OpenBSD: adw.c,v 1.62 2020/06/27 14:29:44 krw Exp $ */
+/*	$OpenBSD: adw.c,v 1.66 2020/07/20 14:41:13 krw Exp $ */
 /* $NetBSD: adw.c,v 1.23 2000/05/27 18:24:50 dante Exp $	 */
 
 /*
@@ -502,17 +502,15 @@ adw_attach(ADW_SOFTC *sc)
 		break;
 	}
 
-	/*
-         * fill in the prototype scsi_link.
-         */
-	sc->sc_link.adapter_softc = sc;
-	sc->sc_link.adapter_target = sc->chip_scsi_id;
-	sc->sc_link.adapter = &adw_switch;
-	sc->sc_link.openings = 4;
-	sc->sc_link.adapter_buswidth = ADW_MAX_TID+1;
-	sc->sc_link.pool = &sc->sc_iopool;
-
-	saa.saa_sc_link = &sc->sc_link;
+	saa.saa_adapter_softc = sc;
+	saa.saa_adapter_target = sc->chip_scsi_id;
+	saa.saa_adapter = &adw_switch;
+	saa.saa_adapter_buswidth = ADW_MAX_TID+1;
+	saa.saa_luns = 8;
+	saa.saa_openings = 4;
+	saa.saa_pool = &sc->sc_iopool;
+	saa.saa_quirks = saa.saa_flags = 0;
+	saa.saa_wwpn = saa.saa_wwnn = 0;
 
 	config_found(&sc->sc_dev, &saa, scsiprint);
 }
@@ -526,7 +524,7 @@ void
 adw_scsi_cmd(struct scsi_xfer *xs)
 {
 	struct scsi_link *sc_link = xs->sc_link;
-	ADW_SOFTC      *sc = sc_link->adapter_softc;
+	ADW_SOFTC      *sc = sc_link->bus->sb_adapter_softc;
 	ADW_CCB        *ccb;
 	int             s, retry = 0;
 
@@ -582,7 +580,7 @@ int
 adw_build_req(struct scsi_xfer *xs, ADW_CCB *ccb, int flags)
 {
 	struct scsi_link *sc_link = xs->sc_link;
-	ADW_SOFTC      *sc = sc_link->adapter_softc;
+	ADW_SOFTC      *sc = sc_link->bus->sb_adapter_softc;
 	bus_dma_tag_t   dmat = sc->sc_dmat;
 	ADW_SCSI_REQ_Q *scsiqp;
 	int             error;
@@ -767,7 +765,7 @@ adw_timeout(void *arg)
 	ADW_CCB        *ccb = arg;
 	struct scsi_xfer *xs = ccb->xs;
 	struct scsi_link *sc_link = xs->sc_link;
-	ADW_SOFTC      *sc = sc_link->adapter_softc;
+	ADW_SOFTC      *sc = sc_link->bus->sb_adapter_softc;
 	int             s;
 
 	sc_print_addr(sc_link);

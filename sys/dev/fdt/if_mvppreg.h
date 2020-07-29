@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_mvppreg.h,v 1.1 2020/06/25 12:09:11 patrick Exp $	*/
+/*	$OpenBSD: if_mvppreg.h,v 1.4 2020/07/22 21:14:05 patrick Exp $	*/
 /*
  * Copyright (c) 2008, 2019 Mark Kettenis <kettenis@openbsd.org>
  * Copyright (c) 2017, 2020 Patrick Wildt <patrick@blueri.se>
@@ -52,9 +52,7 @@
 #ifndef __MVPP2_LIB_HW__
 #define __MVPP2_LIB_HW__
 
-#ifndef BIT
-#define BIT(nr)         (1 << (nr))
-#endif
+#define BIT(nr)		(1U << (nr))
 
 /* PP2v2 registers offsets */
 #define MVPP22_SMI_OFFSET                                  0x1200
@@ -945,6 +943,21 @@
 
 /* Descriptor ring Macros */
 #define MVPP2_QUEUE_NEXT_DESC(q, index)                   (((index) < (q)->LastDesc) ? ((index) + 1) : 0)
+
+/* System controller registers. Accessed through a regmap. */
+#define GENCONF_SOFT_RESET1				0x1108
+#define     GENCONF_SOFT_RESET1_GOP			BIT(6)
+#define GENCONF_PORT_CTRL0				0x1110
+#define     GENCONF_PORT_CTRL0_BUS_WIDTH_SELECT		BIT(1)
+#define     GENCONF_PORT_CTRL0_RX_DATA_SAMPLE		BIT(29)
+#define     GENCONF_PORT_CTRL0_CLK_DIV_PHASE_CLR	BIT(31)
+#define GENCONF_PORT_CTRL1				0x1114
+#define     GENCONF_PORT_CTRL1_EN(p)			BIT(p)
+#define     GENCONF_PORT_CTRL1_RESET(p)			(BIT(p) << 28)
+#define GENCONF_CTRL0					0x1120
+#define     GENCONF_CTRL0_PORT0_RGMII			BIT(0)
+#define     GENCONF_CTRL0_PORT1_RGMII_MII		BIT(1)
+#define     GENCONF_CTRL0_PORT1_RGMII			BIT(2)
 
 /* Various constants */
 
@@ -2057,21 +2070,5 @@ enum MvPortDuplex {
   MV_PORT_DUPLEX_HALF,
   MV_PORT_DUPLEX_FULL
 };
-
-/* L2 and L3 protocol macros */
-#define MV_IPPR_TCP                         0
-#define MV_IPPR_UDP                         1
-#define MV_IPPR_IPIP                        2
-#define MV_IPPR_ICMPV6                      3
-#define MV_IPPR_IGMP                        4
-#define MV_ETH_P_IP                         5
-#define MV_ETH_P_IPV6                       6
-#define MV_ETH_P_PPP_SES                    7
-#define MV_ETH_P_ARP                        8
-#define MV_ETH_P_8021Q                      9
-#define MV_ETH_P_8021AD                     10
-#define MV_ETH_P_EDSA                       11
-#define MV_PPP_IP                           12
-#define MV_PPP_IPV6                         13
 
 #endif /* __MVPP2_LIB_HW__ */

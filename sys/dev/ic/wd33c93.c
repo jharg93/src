@@ -1,4 +1,4 @@
-/*	$OpenBSD: wd33c93.c,v 1.15 2020/07/01 00:02:08 krw Exp $	*/
+/*	$OpenBSD: wd33c93.c,v 1.18 2020/07/20 14:41:13 krw Exp $	*/
 /*	$NetBSD: wd33c93.c,v 1.24 2010/11/13 13:52:02 uebayasi Exp $	*/
 
 /*
@@ -202,15 +202,15 @@ wd33c93_attach(struct wd33c93_softc *sc, struct scsi_adapter *adapter)
 		printf("\n");
 	}
 
-	sc->sc_link.adapter_softc = sc;
-	sc->sc_link.adapter_target = sc->sc_id;
-	sc->sc_link.adapter_buswidth = SBIC_NTARG;
-	sc->sc_link.adapter = adapter;
-	sc->sc_link.openings = 2;
-	sc->sc_link.luns = SBIC_NLUN;
-	sc->sc_link.pool = &wd33c93_iopool;
-
-	saa.saa_sc_link = &sc->sc_link;
+	saa.saa_adapter_softc = sc;
+	saa.saa_adapter_target = sc->sc_id;
+	saa.saa_adapter_buswidth = SBIC_NTARG;
+	saa.saa_adapter = adapter;
+	saa.saa_luns = SBIC_NLUN;
+	saa.saa_openings = 2;
+	saa.saa_pool = &wd33c93_iopool;
+	saa.saa_quirks = saa.saa_flags = 0;
+	saa.saa_wwpn = saa.saa_wwnn = 0;
 
 	config_found(&sc->sc_dev, &saa, scsiprint);
 	timeout_add_sec(&sc->sc_watchdog, 60);
@@ -538,7 +538,7 @@ void
 wd33c93_scsi_cmd(struct scsi_xfer *xs)
 {
 	struct scsi_link *sc_link = xs->sc_link;
-	struct wd33c93_softc *sc = sc_link->adapter_softc;
+	struct wd33c93_softc *sc = sc_link->bus->sb_adapter_softc;
 	struct wd33c93_acb *acb;
 	int flags, s;
 
@@ -2251,7 +2251,7 @@ wd33c93_timeout(void *arg)
 	struct wd33c93_acb *acb = arg;
 	struct scsi_xfer *xs = acb->xs;
 	struct scsi_link *sc_link = xs->sc_link;
-	struct wd33c93_softc *sc = sc_link->adapter_softc;
+	struct wd33c93_softc *sc = sc_link->bus->sb_adapter_softc;
 	int s, asr, csr;
 
 	s = splbio();

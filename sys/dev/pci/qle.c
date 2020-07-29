@@ -1,4 +1,4 @@
-/*	$OpenBSD: qle.c,v 1.55 2020/06/27 14:29:45 krw Exp $ */
+/*	$OpenBSD: qle.c,v 1.60 2020/07/22 13:16:05 krw Exp $ */
 
 /*
  * Copyright (c) 2013, 2014 Jonathan Matthew <jmatthew@openbsd.org>
@@ -163,8 +163,6 @@ struct qle_softc {
 	bus_space_handle_t	sc_ioh;
 	bus_size_t		sc_ios;
 	bus_dma_tag_t		sc_dmat;
-
-	struct scsi_link        sc_link;
 
 	struct scsibus_softc	*sc_scsibus;
 
@@ -654,32 +652,30 @@ qle_attach(struct device *parent, struct device *self, void *aux)
 		    DEVNAME(sc));
 	}
 
-	/* we should be good to go now, attach scsibus */
-	sc->sc_link.adapter = &qle_switch;
-	sc->sc_link.adapter_softc = sc;
-	sc->sc_link.adapter_target = SDEV_NO_ADAPTER_TARGET;
-	sc->sc_link.adapter_buswidth = QLE_MAX_TARGETS;
-	sc->sc_link.openings = sc->sc_maxcmds;
-	sc->sc_link.pool = &sc->sc_iopool;
+	saa.saa_adapter = &qle_switch;
+	saa.saa_adapter_softc = sc;
+	saa.saa_adapter_target = SDEV_NO_ADAPTER_TARGET;
+	saa.saa_adapter_buswidth = QLE_MAX_TARGETS;
+	saa.saa_luns = 8;
+	saa.saa_openings = sc->sc_maxcmds;
+	saa.saa_pool = &sc->sc_iopool;
 	if (sc->sc_nvram_valid) {
-		sc->sc_link.port_wwn = betoh64(sc->sc_nvram.port_name);
-		sc->sc_link.node_wwn = betoh64(sc->sc_nvram.node_name);
+		saa.saa_wwpn = betoh64(sc->sc_nvram.port_name);
+		saa.saa_wwnn = betoh64(sc->sc_nvram.node_name);
 	} else {
-		sc->sc_link.port_wwn = QLE_DEFAULT_PORT_NAME;
-		sc->sc_link.node_wwn = 0;
+		saa.saa_wwpn = QLE_DEFAULT_PORT_NAME;
+		saa.saa_wwnn = 0;
 	}
-	if (sc->sc_link.node_wwn == 0) {
+	if (saa.saa_wwnn == 0) {
 		/*
 		 * mask out the port number from the port name to get
 		 * the node name.
 		 */
-		sc->sc_link.node_wwn = sc->sc_link.port_wwn;
-		sc->sc_link.node_wwn &= ~(0xfULL << 56);
+		saa.saa_wwnn = saa.saa_wwpn;
+		saa.saa_wwnn &= ~(0xfULL << 56);
 	}
+	saa.saa_quirks = saa.saa_flags = 0;
 
-	saa.saa_sc_link = &sc->sc_link;
-
-	/* config_found() returns the scsibus attached to us */
 	sc->sc_scsibus = (struct scsibus_softc *)config_found(&sc->sc_dev,
 	    &saa, scsiprint);
 
@@ -1277,7 +1273,7 @@ qle_intr(void *xsc)
 int
 qle_scsi_probe(struct scsi_link *link)
 {
-	struct qle_softc *sc = link->adapter_softc;
+	struct qle_softc *sc = link->bus->sb_adapter_softc;
 	int rv = 0;
 
 	mtx_enter(&sc->sc_port_mtx);
@@ -1295,7 +1291,7 @@ void
 qle_scsi_cmd(struct scsi_xfer *xs)
 {
 	struct scsi_link	*link = xs->sc_link;
-	struct qle_softc	*sc = link->adapter_softc;
+	struct qle_softc	*sc = link->bus->sb_adapter_softc;
 	struct qle_ccb		*ccb;
 	void			*iocb;
 	struct qle_ccb_list	list;

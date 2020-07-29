@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtld_machine.c,v 1.2 2020/06/28 20:52:05 drahn Exp $ */
+/*	$OpenBSD: rtld_machine.c,v 1.5 2020/07/18 16:41:43 kettenis Exp $ */
 
 /*
  * Copyright (c) 1999 Dale Rahn
@@ -93,7 +93,7 @@ _dl_md_reloc(elf_object_t *object, int rel, int relasz)
 
 		type = ELF_R_TYPE(relas->r_info);
 
-		if (type == RELOC_JMP_SLOT && rel != DT_JMPREL)
+		if (type == R_PPC64_JMP_SLOT && rel != DT_JMPREL)
 			continue;
 
 		sym = object->dyn.symtab;
@@ -108,7 +108,7 @@ _dl_md_reloc(elf_object_t *object, int rel, int relasz)
 
 			sr = _dl_find_symbol(symn,
 			    SYM_SEARCH_ALL|SYM_WARNNOTFOUND|
-			    ((type == RELOC_JMP_SLOT) ?
+			    ((type == R_PPC64_JMP_SLOT) ?
 			    SYM_PLT:SYM_NOTPLT), sym, object);
 
 			if (sr.sym == NULL) {
@@ -122,7 +122,7 @@ _dl_md_reloc(elf_object_t *object, int rel, int relasz)
 		}
 
 		switch (type) {
-		case RELOC_ADDR64: //RELOC_64:
+		case R_PPC64_ADDR64:
 			if (ELF_ST_BIND(sym->st_info) == STB_LOCAL &&
 			    (ELF_ST_TYPE(sym->st_info) == STT_SECTION ||
 			    ELF_ST_TYPE(sym->st_info) == STT_NOTYPE) ) {
@@ -132,7 +132,7 @@ _dl_md_reloc(elf_object_t *object, int rel, int relasz)
 				    relas->r_addend;
 			}
 			break;
-		case RELOC_RELATIVE:
+		case R_PPC64_RELATIVE:
 			if (ELF_ST_BIND(sym->st_info) == STB_LOCAL &&
 			    (ELF_ST_TYPE(sym->st_info) == STT_SECTION ||
 			    ELF_ST_TYPE(sym->st_info) == STT_NOTYPE) ) {
@@ -147,8 +147,8 @@ _dl_md_reloc(elf_object_t *object, int rel, int relasz)
 		 * slots similarly to how RELOC_GLOB_DAT updates GOT
 		 * slots.
 		 */
-		case RELOC_JMP_SLOT:
-		case RELOC_GLOB_DAT:
+		case R_PPC64_JMP_SLOT:
+		case R_PPC64_GLOB_DAT:
 			*r_addr = prev_ooff + prev_value + relas->r_addend;
 			break;
 #if 0
@@ -207,6 +207,7 @@ _dl_md_reloc(elf_object_t *object, int rel, int relasz)
 		    }
 		break;
 #endif
+#if 0
 		case RELOC_REL14_TAKEN:
 			/* val |= 1 << (31-10) XXX? */
 		case RELOC_REL14:
@@ -227,7 +228,8 @@ _dl_md_reloc(elf_object_t *object, int rel, int relasz)
 			_dl_dcbf(r_addr);
 		    }
 			break;
-		case RELOC_COPY:
+#endif
+		case R_PPC64_COPY:
 		{
 			struct sym_res sr;
 			/*
@@ -246,7 +248,7 @@ _dl_md_reloc(elf_object_t *object, int rel, int relasz)
 				fails++;
 		}
 			break;
-		case RELOC_NONE:
+		case R_PPC64_NONE:
 			break;
 
 		default:
@@ -272,13 +274,34 @@ _dl_md_reloc_got(elf_object_t *object, int lazy)
 	if (object->Dyn.info[DT_PLTREL] != DT_RELA)
 		return 0;
 
-	fails = _dl_md_reloc(object, DT_JMPREL, DT_PLTRELSZ);
+	if (!lazy) {
+		fails = _dl_md_reloc(object, DT_JMPREL, DT_PLTRELSZ);
+	} else {
+		Elf_Addr *plt;
+		int numplt, n;
+
+		/* Relocate processor-specific tags. */
+		object->Dyn.info[DT_PROC(DT_PPC64_GLINK)] += object->obj_base;
+
+		if (object->Dyn.info[DT_PLTREL] != DT_RELA)
+			_dl_die(" bad relocation type PLTREL not RELA");
+
+		plt = (Elf_Addr *)
+		   (Elf_RelA *)(object->Dyn.info[DT_PLTGOT]);
+		numplt = object->Dyn.info[DT_PLTRELSZ] / sizeof(Elf_RelA);
+		plt[0] = (uint64_t)_dl_bind_start;
+		plt[1] = (uint64_t)object;
+		for (n = 0; n < numplt; n++) {
+			plt[n + 2] = object->Dyn.info[DT_PROC(DT_PPC64_GLINK)] +
+			    n * 4 + 32;
+		}
+	}
 
 	return fails;
 }
 
 Elf_Addr
-_dl_bind(elf_object_t *object, int reloff)
+_dl_bind(elf_object_t *object, int relidx)
 {
 	const Elf_Sym *sym;
 	struct sym_res sr;
@@ -291,7 +314,7 @@ _dl_bind(elf_object_t *object, int reloff)
 		Elf_Addr newval;
 	} buf;
 
-	relas = (Elf_RelA *)(object->Dyn.info[DT_JMPREL] + reloff);
+	relas = ((Elf_RelA *)object->Dyn.info[DT_JMPREL]) + relidx;
 
 	sym = object->dyn.symtab;
 	sym += ELF_R_SYM(relas->r_info);
@@ -308,7 +331,7 @@ _dl_bind(elf_object_t *object, int reloff)
 		return buf.newval;
 
 	plttable = (Elf_Addr *)(Elf_RelA *)(object->Dyn.info[DT_PLTGOT]);
-	buf.param.kb_addr = &plttable[ reloff / sizeof(Elf_RelA) ];
+	buf.param.kb_addr = &plttable[relidx + 2];
 	buf.param.kb_size = sizeof(Elf_Addr);
 
 	{

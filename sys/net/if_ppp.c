@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ppp.c,v 1.114 2020/06/24 22:03:42 cheloha Exp $	*/
+/*	$OpenBSD: if_ppp.c,v 1.116 2020/07/10 13:26:42 patrick Exp $	*/
 /*	$NetBSD: if_ppp.c,v 1.39 1997/05/17 21:11:59 christos Exp $	*/
 
 /*
@@ -220,7 +220,7 @@ ppp_clone_create(struct if_clone *ifc, int unit)
 	sc->sc_if.if_output = pppoutput;
 	sc->sc_if.if_start = ppp_ifstart;
 	sc->sc_if.if_rtrequest = p2p_rtrequest;
-	IFQ_SET_MAXLEN(&sc->sc_if.if_snd, IFQ_MAXLEN);
+	ifq_set_maxlen(&sc->sc_if.if_snd, IFQ_MAXLEN);
 	mq_init(&sc->sc_inq, IFQ_MAXLEN, IPL_NET);
 	ppp_pkt_list_init(&sc->sc_rawq, IFQ_MAXLEN);
 	if_attach(&sc->sc_if);
@@ -768,7 +768,7 @@ pppoutput(struct ifnet *ifp, struct mbuf *m0, struct sockaddr *dst,
 		/* XXX we should limit the number of packets on this queue */
 		ml_enqueue(&sc->sc_npqueue, m0);
 	} else {
-		IFQ_ENQUEUE(&sc->sc_if.if_snd, m0, error);
+		error = ifq_enqueue(&sc->sc_if.if_snd, m0);
 		if (error) {
 			sc->sc_if.if_oerrors++;
 			sc->sc_stats.ppp_oerrors++;
@@ -811,7 +811,7 @@ ppp_requeue(struct ppp_softc *sc)
 
 		switch (mode) {
 		case NPMODE_PASS:
-			IFQ_ENQUEUE(&sc->sc_if.if_snd, m, error);
+			error = ifq_enqueue(&sc->sc_if.if_snd, m);
 			if (error) {
 				sc->sc_if.if_oerrors++;
 				sc->sc_stats.ppp_oerrors++;
@@ -858,7 +858,7 @@ ppp_dequeue(struct ppp_softc *sc)
 	 * Grab a packet to send: first try the fast queue, then the
 	 * normal queue.
 	 */
-	IFQ_DEQUEUE(&sc->sc_if.if_snd, m);
+	m = ifq_dequeue(&sc->sc_if.if_snd);
 	if (m == NULL)
 		return NULL;
 
@@ -992,7 +992,7 @@ pppintr(void)
 
 	LIST_FOREACH(sc, &ppp_softc_list, sc_list) {
 		if (!(sc->sc_flags & SC_TBUSY) &&
-		    (!IFQ_IS_EMPTY(&sc->sc_if.if_snd))) {
+		    (!ifq_empty(&sc->sc_if.if_snd))) {
 			s = splnet();
 			sc->sc_flags |= SC_TBUSY;
 			splx(s);

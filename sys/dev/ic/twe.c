@@ -1,4 +1,4 @@
-/*	$OpenBSD: twe.c,v 1.54 2020/06/27 17:28:58 krw Exp $	*/
+/*	$OpenBSD: twe.c,v 1.58 2020/07/24 12:43:31 krw Exp $	*/
 
 /*
  * Copyright (c) 2000-2002 Michael Shalayeff.  All rights reserved.
@@ -394,14 +394,15 @@ twe_attach(sc)
 
 	/* TODO: fetch & print cache params? */
 
-	sc->sc_link.adapter_softc = sc;
-	sc->sc_link.adapter = &twe_switch;
-	sc->sc_link.adapter_target = SDEV_NO_ADAPTER_TARGET;
-	sc->sc_link.openings = TWE_MAXCMDS / nunits;
-	sc->sc_link.adapter_buswidth = TWE_MAX_UNITS;
-	sc->sc_link.pool = &sc->sc_iopool;
-
-	saa.saa_sc_link = &sc->sc_link;
+	saa.saa_adapter_softc = sc;
+	saa.saa_adapter = &twe_switch;
+	saa.saa_adapter_target = SDEV_NO_ADAPTER_TARGET;
+	saa.saa_adapter_buswidth = TWE_MAX_UNITS;
+	saa.saa_luns = 8;
+	saa.saa_openings = TWE_MAXCMDS / nunits;
+	saa.saa_pool = &sc->sc_iopool;
+	saa.saa_quirks = saa.saa_flags = 0;
+	saa.saa_wwpn = saa.saa_wwnn = 0;
 
 	config_found(&sc->sc_dev, &saa, scsiprint);
 
@@ -573,7 +574,7 @@ twe_cmd(ccb, flags, wait)
 			for (i = 0; i < dmap->dm_nsegs; i++, sgp++) {
 				sgp->twes_addr = htole32(dmap->dm_segs[i].ds_addr);
 				sgp->twes_len  = htole32(dmap->dm_segs[i].ds_len);
-				TWE_DPRINTF(TWE_D_DMA, ("%x[%x] ",
+				TWE_DPRINTF(TWE_D_DMA, ("%lx[%lx] ",
 				    dmap->dm_segs[i].ds_addr,
 				    dmap->dm_segs[i].ds_len));
 			}
@@ -774,7 +775,7 @@ twe_scsi_cmd(xs)
 	struct scsi_xfer *xs;
 {
 	struct scsi_link *link = xs->sc_link;
-	struct twe_softc *sc = link->adapter_softc;
+	struct twe_softc *sc = link->bus->sb_adapter_softc;
 	struct twe_ccb *ccb = xs->io;
 	struct twe_cmd *cmd;
 	struct scsi_inquiry_data inq;

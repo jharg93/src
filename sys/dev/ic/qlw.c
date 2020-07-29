@@ -1,4 +1,4 @@
-/*	$OpenBSD: qlw.c,v 1.39 2020/07/05 21:54:44 krw Exp $ */
+/*	$OpenBSD: qlw.c,v 1.45 2020/07/24 12:43:31 krw Exp $ */
 
 /*
  * Copyright (c) 2011 David Gwynne <dlg@openbsd.org>
@@ -39,7 +39,9 @@
 #include <dev/ic/qlwvar.h>
 
 #ifndef SMALL_KERNEL
+#ifndef QLW_DEBUG
 #define QLW_DEBUG
+#endif
 #endif
 
 #ifdef QLW_DEBUG
@@ -393,19 +395,17 @@ qlw_attach(struct qlw_softc *sc)
 	/* wait for the busses to settle */
 	delay(reset_delay * 1000000);
 
-	/* we should be good to go now, attach scsibus */
+	saa.saa_adapter = &qlw_switch;
+	saa.saa_adapter_softc = sc;
+	saa.saa_adapter_buswidth = QLW_MAX_TARGETS;
+	saa.saa_luns = QLW_MAX_LUNS;
+	saa.saa_pool = &sc->sc_iopool;
+	saa.saa_quirks = saa.saa_flags = 0;
+	saa.saa_wwpn = saa.saa_wwnn = 0;
 	for (bus = 0; bus < sc->sc_numbusses; bus++) {
-		sc->sc_link[bus].adapter = &qlw_switch;
-		sc->sc_link[bus].adapter_softc = sc;
-		sc->sc_link[bus].adapter_target = sc->sc_initiator[bus];
-		sc->sc_link[bus].adapter_buswidth = QLW_MAX_TARGETS;
-		sc->sc_link[bus].luns = QLW_MAX_LUNS;
-		sc->sc_link[bus].openings = sc->sc_max_queue_depth[bus];
-		sc->sc_link[bus].pool = &sc->sc_iopool;
+		saa.saa_adapter_target = sc->sc_initiator[bus];
+		saa.saa_openings = sc->sc_max_queue_depth[bus];
 
-		saa.saa_sc_link = &sc->sc_link[bus];
-
-		/* config_found() returns the scsibus attached to us */
 		sc->sc_scsibus[bus] = (struct scsibus_softc *)
 		    config_found(&sc->sc_dev, &saa, scsiprint);
 
@@ -660,7 +660,7 @@ qlw_handle_resp(struct qlw_softc *sc, u_int16_t id)
 
 		case QLW_IOCB_STATUS_WIDE_FAILED:
 			DPRINTF(QLW_D_INTR, "%s: wide failed\n", DEVNAME(sc));
-			sc->sc_link->quirks |= SDEV_NOWIDE;
+			xs->sc_link->quirks |= SDEV_NOWIDE;
 			atomic_setbits_int(&sc->sc_update_required[bus],
 			    1 << xs->sc_link->target);
 			task_add(systq, &sc->sc_update_task);
@@ -670,7 +670,7 @@ qlw_handle_resp(struct qlw_softc *sc, u_int16_t id)
 
 		case QLW_IOCB_STATUS_SYNCXFER_FAILED:
 			DPRINTF(QLW_D_INTR, "%s: sync failed\n", DEVNAME(sc));
-			sc->sc_link->quirks |= SDEV_NOSYNC;
+			xs->sc_link->quirks |= SDEV_NOSYNC;
 			atomic_setbits_int(&sc->sc_update_required[bus],
 			    1 << xs->sc_link->target);
 			task_add(systq, &sc->sc_update_task);
@@ -790,7 +790,7 @@ void
 qlw_scsi_cmd(struct scsi_xfer *xs)
 {
 	struct scsi_link	*link = xs->sc_link;
-	struct qlw_softc	*sc = link->adapter_softc;
+	struct qlw_softc	*sc = link->bus->sb_adapter_softc;
 	struct qlw_ccb		*ccb;
 	struct qlw_iocb_req0	*iocb;
 	struct qlw_ccb_list	list;

@@ -1,18 +1,30 @@
-/* $OpenBSD: db_disasm.c,v 1.2 2019/11/07 11:04:21 mpi Exp $ */
+/* $OpenBSD: db_disasm.c,v 1.3 2020/07/25 12:26:09 tobhe Exp $ */
+/* $NetBSD: db_disasm.c,v 1.10 2020/07/09 23:43:41 ryo Exp $ */
+
 /*
- * Copyright (c) 2016 Dale Rahn <drahn@dalerahn.com>
+ * Copyright (c) 2017 Ryo Shimizu <ryo@nerv.org>
+ * All rights reserved.
  *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
  *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT,
+ * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
+ * IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include <sys/param.h>
@@ -22,8 +34,30 @@
 #include <ddb/db_output.h>
 #include <ddb/db_access.h>
 
+#include <arch/arm64/arm64/disasm.h>
+
+static db_expr_t
+db_disasm_readword(db_expr_t address)
+{
+	return db_get_value(address, sizeof(uint32_t), false);
+}
+
+static void
+db_disasm_printaddr(db_expr_t address)
+{
+	db_printf("%lx <", address);
+	db_printsym((vaddr_t)address, DB_STGY_ANY, db_printf);
+	db_printf(">");
+}
+
+static const disasm_interface_t db_disasm_interface = {
+	.di_readword = db_disasm_readword,
+	.di_printaddr = db_disasm_printaddr,
+	.di_printf = db_printf
+};
+
 vaddr_t
 db_disasm(vaddr_t loc, int altfmt)
 {
-	return loc + 4;
+	return disasm(&db_disasm_interface, loc);
 }

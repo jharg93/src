@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.c,v 1.74 2020/05/29 04:42:24 deraadt Exp $ */
+/*	$OpenBSD: cpu.c,v 1.77 2020/07/22 08:04:41 fcambus Exp $ */
 
 /*
  * Copyright (c) 1997-2004 Opsycon AB (www.opsycon.se)
@@ -55,6 +55,7 @@ extern void cpu_idle_cycle_wait(void);
 void (*cpu_idle_cycle_func)(void) = cpu_idle_cycle_nop;
 
 vaddr_t	cache_valias_mask;
+int	cpu_has_synced_cp0_count;
 int	cpu_has_userlocal;
 
 struct cfattach cpu_ca = {
@@ -120,7 +121,7 @@ cpuattach(struct device *parent, struct device *dev, void *aux)
 	 * instead.
 	 * XXX The MP boot sequence needs to be reworked to avoid this.
 	 */
-	if (!ISSET(ci->ci_flags, CPUF_PRIMARY)) {
+	if (!CPU_IS_PRIMARY(ci)) {
 		ci->ci_l1inst = cpu_info_primary.ci_l1inst;
 		ci->ci_l1data = cpu_info_primary.ci_l1data;
 		ci->ci_l2 = cpu_info_primary.ci_l2;
@@ -513,7 +514,7 @@ cpu_boot_secondary_processors(void)
 	CPU_INFO_FOREACH(cii, ci) {
 		if ((ci->ci_flags & CPUF_PRESENT) == 0)
 			continue;
-		if (ci->ci_flags & CPUF_PRIMARY)
+		if (CPU_IS_PRIMARY(ci))
 			continue;
 
 		ci->ci_randseed = (arc4random() & 0x7fffffff) + 1;

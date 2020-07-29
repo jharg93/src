@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_atu.c,v 1.129 2020/06/16 09:41:21 jmatthew Exp $ */
+/*	$OpenBSD: if_atu.c,v 1.131 2020/07/10 13:26:40 patrick Exp $ */
 /*
  * Copyright (c) 2003, 2004
  *	Daan Vreeken <Danovitsch@Vitsch.net>.  All rights reserved.
@@ -1957,7 +1957,7 @@ atu_start(struct ifnet *ifp)
 				break;
 			}
 
-			IFQ_DEQUEUE(&ifp->if_snd, m);
+			m = ifq_dequeue(&ifp->if_snd);
 			if (m == NULL) {
 				DPRINTFN(25, ("%s: nothing to send\n",
 				    sc->atu_dev.dv_xname));
@@ -2226,7 +2226,7 @@ atu_watchdog(struct ifnet *ifp)
 		}
 	}
 
-	if (!IFQ_IS_EMPTY(&ifp->if_snd))
+	if (!ifq_empty(&ifp->if_snd))
 		atu_start(ifp);
 	splx(s);
 

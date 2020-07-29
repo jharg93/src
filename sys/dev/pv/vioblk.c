@@ -1,4 +1,4 @@
-/*	$OpenBSD: vioblk.c,v 1.20 2020/06/27 14:29:45 krw Exp $	*/
+/*	$OpenBSD: vioblk.c,v 1.26 2020/07/22 13:16:05 krw Exp $	*/
 
 /*
  * Copyright (c) 2012 Stefan Fritsch.
@@ -107,8 +107,8 @@ struct vioblk_softc {
 	struct virtqueue         sc_vq[1];
 	struct virtio_blk_req   *sc_reqs;
 	bus_dma_segment_t        sc_reqs_segs[1];
+	int			 sc_nreqs;
 
-	struct scsi_link	 sc_link;
 	struct scsi_iopool	 sc_iopool;
 	struct mutex		 sc_vr_mtx;
 	SLIST_HEAD(, virtio_blk_req) sc_freelist;
@@ -229,25 +229,28 @@ vioblk_attach(struct device *parent, struct device *self, void *aux)
 	mtx_init(&sc->sc_vr_mtx, IPL_BIO);
 	scsi_iopool_init(&sc->sc_iopool, sc, vioblk_req_get, vioblk_req_put);
 
-	sc->sc_link.openings = vioblk_alloc_reqs(sc, qsize);
-	if (sc->sc_link.openings == 0) {
+	sc->sc_nreqs = vioblk_alloc_reqs(sc, qsize);
+	if (sc->sc_nreqs == 0) {
 		printf("\nCan't alloc reqs\n");
 		goto err;
 	}
-
-	sc->sc_link.adapter = &vioblk_switch;
-	sc->sc_link.pool = &sc->sc_iopool;
-	sc->sc_link.adapter_softc = self;
-	/* Only valid target/lun is 0/0. */
-	sc->sc_link.adapter_buswidth = 1;
-	sc->sc_link.luns = 1;
-	sc->sc_link.adapter_target = SDEV_NO_ADAPTER_TARGET;
 	DNPRINTF(1, "%s: qsize: %d\n", __func__, qsize);
-	if (virtio_has_feature(vsc, VIRTIO_BLK_F_RO))
-		sc->sc_link.flags |= SDEV_READONLY;
-
-	saa.saa_sc_link = &sc->sc_link;
 	printf("\n");
+
+	saa.saa_adapter = &vioblk_switch;
+	saa.saa_adapter_softc = self;
+	saa.saa_adapter_buswidth = 1;
+	saa.saa_luns = 1;
+	saa.saa_adapter_target = SDEV_NO_ADAPTER_TARGET;
+	saa.saa_openings = sc->sc_nreqs;
+	saa.saa_pool = &sc->sc_iopool;
+	if (virtio_has_feature(vsc, VIRTIO_BLK_F_RO))
+		saa.saa_flags = SDEV_READONLY;
+	else
+		saa.saa_flags = 0;
+	saa.saa_quirks = 0;
+	saa.saa_wwpn = saa.saa_wwnn = 0;
+
 	config_found(self, &saa, scsiprint);
 
 	return;
@@ -373,7 +376,7 @@ vioblk_reset(struct vioblk_softc *sc)
 	vioblk_vq_done(&sc->sc_vq[0]);
 
 	/* abort all remaining requests */
-	for (i = 0; i < sc->sc_link.openings; i++) {
+	for (i = 0; i < sc->sc_nreqs; i++) {
 		struct virtio_blk_req *vr = &sc->sc_reqs[i];
 		struct scsi_xfer *xs = vr->vr_xs;
 
@@ -389,7 +392,7 @@ vioblk_reset(struct vioblk_softc *sc)
 void
 vioblk_scsi_cmd(struct scsi_xfer *xs)
 {
-	struct vioblk_softc *sc = xs->sc_link->adapter_softc;
+	struct vioblk_softc *sc = xs->sc_link->bus->sb_adapter_softc;
 	struct virtqueue *vq = &sc->sc_vq[0];
 	struct virtio_softc *vsc = sc->sc_virtio;
 	struct virtio_blk_req *vr;
@@ -584,7 +587,7 @@ vioblk_scsi_inq(struct scsi_xfer *xs)
 void
 vioblk_scsi_capacity(struct scsi_xfer *xs)
 {
-	struct vioblk_softc *sc = xs->sc_link->adapter_softc;
+	struct vioblk_softc *sc = xs->sc_link->bus->sb_adapter_softc;
 	struct scsi_read_cap_data rcd;
 	uint64_t capacity;
 
@@ -604,7 +607,7 @@ vioblk_scsi_capacity(struct scsi_xfer *xs)
 void
 vioblk_scsi_capacity16(struct scsi_xfer *xs)
 {
-	struct vioblk_softc *sc = xs->sc_link->adapter_softc;
+	struct vioblk_softc *sc = xs->sc_link->bus->sb_adapter_softc;
 	struct scsi_read_cap_data_16 rcd;
 
 	bzero(&rcd, sizeof(rcd));

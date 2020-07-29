@@ -1,4 +1,4 @@
-/*	$OpenBSD: aic6250.c,v 1.8 2020/06/27 14:29:44 krw Exp $	*/
+/*	$OpenBSD: aic6250.c,v 1.12 2020/07/20 14:41:13 krw Exp $	*/
 
 /*
  * Copyright (c) 2010, 2013 Miodrag Vallat.
@@ -202,16 +202,14 @@ aic6250_attach(struct aic6250_softc *sc)
 
 	aic6250_init(sc);	/* init chip and driver */
 
-	/*
-	 * Fill in the prototype scsi_link
-	 */
-	sc->sc_link.adapter_softc = sc;
-	sc->sc_link.adapter_target = sc->sc_initiator;
-	sc->sc_link.adapter = &aic6250_switch;
-	sc->sc_link.openings = 2;
-	sc->sc_link.pool = &sc->sc_iopool;
-
-	saa.saa_sc_link = &sc->sc_link;
+	saa.saa_adapter_softc = sc;
+	saa.saa_adapter_target = sc->sc_initiator;
+	saa.saa_adapter = &aic6250_switch;
+	saa.saa_luns = saa.saa_adapter_buswidth = 8;
+ 	saa.saa_openings = 2;
+	saa.saa_pool = &sc->sc_iopool;
+	saa.saa_wwpn = saa.saa_wwnn = 0;
+	saa.saa_quirks = saa.saa_flags = 0;
 
 	config_found(&sc->sc_dev, &saa, scsiprint);
 }
@@ -387,7 +385,7 @@ void
 aic6250_scsi_cmd(struct scsi_xfer *xs)
 {
 	struct scsi_link *sc_link = xs->sc_link;
-	struct aic6250_softc *sc = sc_link->adapter_softc;
+	struct aic6250_softc *sc = sc_link->bus->sb_adapter_softc;
 	struct aic6250_acb *acb;
 	int s, flags;
 
@@ -1792,7 +1790,7 @@ aic6250_timeout(void *arg)
 	struct aic6250_acb *acb = arg;
 	struct scsi_xfer *xs = acb->xs;
 	struct scsi_link *sc_link = xs->sc_link;
-	struct aic6250_softc *sc = sc_link->adapter_softc;
+	struct aic6250_softc *sc = sc_link->bus->sb_adapter_softc;
 	int s;
 
 	sc_print_addr(sc_link);
