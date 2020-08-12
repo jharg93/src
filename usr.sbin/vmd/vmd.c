@@ -49,8 +49,6 @@
 #include "atomicio.h"
 #include "vmd.h"
 
-#define pledge(x...) 0
-
 __dead void usage(void);
 
 int	 main(int, char **);

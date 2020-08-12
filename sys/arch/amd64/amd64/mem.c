@@ -84,7 +84,6 @@ mmopen(dev_t dev, int flag, int mode, struct proc *p)
 	switch (minor(dev)) {
 	case 0:
 	case 1:
-		break;
 		if (securelevel <= 0 || allowkmem)
 			break;
 		return (EPERM);

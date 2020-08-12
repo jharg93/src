@@ -66,8 +66,6 @@
 #include "atomicio.h"
 #include "x86emu.h"
 
-#define pledge(x...) 0
-
 io_fn_t ioports_map[MAX_PORTS];
 
 int run_vm(int, int[][VM_MAX_BASE_PER_DISK], int *,

@@ -51,8 +51,6 @@
  * These functions may be called in interrupt context (anything below splhigh).
  */
 
-#include <sys/time.h>
-
 struct circq {
 	struct circq *next;		/* next element */
 	struct circq *prev;		/* previous element */
@@ -60,7 +58,6 @@ struct circq {
 
 struct timeout {
 	struct circq to_list;			/* timeout queue, don't move */
-	struct timespec to_abstime;		/* absolute uptime on event */
 	void (*to_func)(void *);		/* function to call */
 	void *to_arg;				/* function argument */
 	int to_time;				/* ticks on event */
@@ -108,7 +105,6 @@ int timeout_sysctl(void *, size_t *, void *, size_t);
 
 #define TIMEOUT_INITIALIZER_FLAGS(fn, arg, flags) {			\
 	.to_list = { NULL, NULL },					\
-	.to_abstime = { .tv_sec = 0, .tv_nsec = 0 },			\
 	.to_func = (fn),						\
 	.to_arg = (arg),						\
 	.to_time = 0,							\
@@ -120,18 +116,12 @@ int timeout_sysctl(void *, size_t *, void *, size_t);
 void timeout_set(struct timeout *, void (*)(void *), void *);
 void timeout_set_flags(struct timeout *, void (*)(void *), void *, int);
 void timeout_set_proc(struct timeout *, void (*)(void *), void *);
-
 int timeout_add(struct timeout *, int);
 int timeout_add_tv(struct timeout *, const struct timeval *);
 int timeout_add_sec(struct timeout *, int);
 int timeout_add_msec(struct timeout *, int);
 int timeout_add_usec(struct timeout *, int);
 int timeout_add_nsec(struct timeout *, int);
-
-int timeout_advance_nsec(struct timeout *, uint64_t, uint64_t *);
-int timeout_at_ts(struct timeout *, clockid_t, const struct timespec *);
-int timeout_in_nsec(struct timeout *, uint64_t);
-
 int timeout_del(struct timeout *);
 int timeout_del_barrier(struct timeout *);
 void timeout_barrier(struct timeout *);

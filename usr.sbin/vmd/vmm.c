@@ -53,8 +53,6 @@
 #include "vmd.h"
 #include "vmm.h"
 
-#define pledge(x...) 0
-
 void vmm_sighdlr(int, short, void *);
 int vmm_start_vm(struct imsg *, uint32_t *, pid_t *);
 int vmm_dispatch_parent(int, struct privsep_proc *, struct imsg *);
