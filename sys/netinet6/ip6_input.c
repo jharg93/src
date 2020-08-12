@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip6_input.c,v 1.226 2020/05/06 07:08:53 mpi Exp $	*/
+/*	$OpenBSD: ip6_input.c,v 1.228 2020/08/08 07:42:31 florian Exp $	*/
 /*	$KAME: ip6_input.c,v 1.188 2001/03/29 05:34:31 itojun Exp $	*/
 
 /*
@@ -424,8 +424,6 @@ ip6_input_if(struct mbuf **mp, int *offp, int nxt, int af, struct ifnet *ifp)
 	 */
 	if (rtisvalid(rt) && ISSET(rt->rt_flags, RTF_LOCAL)) {
 		struct in6_ifaddr *ia6 = ifatoia6(rt->rt_ifa);
-		if (ia6->ia6_flags & IN6_IFF_ANYCAST)
-			m->m_flags |= M_ACAST;
 
 		if (ip6_forwarding == 0 && rt->rt_ifidx != ifp->if_index &&
 		    !((ifp->if_flags & IFF_LOOPBACK) ||
@@ -1438,14 +1436,11 @@ ip6_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp,
 	case IPV6CTL_SOIIKEY:
 		return (ip6_sysctl_soiikey(oldp, oldlenp, newp, newlen));
 	default:
-		if (name[0] < IPV6CTL_MAXID) {
-			NET_LOCK();
-			error = sysctl_int_arr(ipv6ctl_vars, name, namelen,
-			    oldp, oldlenp, newp, newlen);
-			NET_UNLOCK();
-			return (error);
-		}
-		return (EOPNOTSUPP);
+		NET_LOCK();
+		error = sysctl_int_arr(ipv6ctl_vars, nitems(ipv6ctl_vars), name,
+		    namelen, oldp, oldlenp, newp, newlen);
+		NET_UNLOCK();
+		return (error);
 	}
 	/* NOTREACHED */
 }

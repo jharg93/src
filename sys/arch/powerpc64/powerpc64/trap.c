@@ -1,4 +1,4 @@
-/*	$OpenBSD: trap.c,v 1.24 2020/07/05 12:24:16 kettenis Exp $	*/
+/*	$OpenBSD: trap.c,v 1.34 2020/07/23 16:01:08 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2020 Mark Kettenis <kettenis@openbsd.org>
@@ -32,6 +32,7 @@
 
 #ifdef DDB
 #include <machine/db_machdep.h>
+#include <ddb/db_output.h>
 #endif
 
 void	decr_intr(struct trapframe *); /* clock.c */
@@ -48,7 +49,6 @@ trap(struct trapframe *frame)
 	int type = frame->exc;
 	union sigval sv;
 	struct vm_map *map;
-	struct slb_desc *slbd;
 	pmap_t pm;
 	vaddr_t va;
 	int ftype;
@@ -85,6 +85,10 @@ trap(struct trapframe *frame)
 		type |= EXC_USER;
 		p->p_md.md_regs = frame;
 		refreshcreds(p);
+		if (!uvm_map_inentry(p, &p->p_spinentry, PROC_STACK(p),
+		    "[%s]%d/%d sp=%lx inside %lx-%lx: not MAP_STACK\n",
+		    uvm_map_inentry_sp, p->p_vmspace->vm_map.sserial))
+			goto out;
 	}
 
 	switch (type) {
@@ -117,11 +121,20 @@ trap(struct trapframe *frame)
 		else
 			ftype = PROT_READ;
 		KERNEL_LOCK();
-		if (uvm_fault(map, trunc_page(va), 0, ftype) == 0) {
-			KERNEL_UNLOCK();
-			return;
-		}
+		error = uvm_fault(map, trunc_page(va), 0, ftype);
+#ifdef MULTIPROCESSOR
+		/*
+		 * The uvm_fault() call above might sleep and
+		 * therefore witch from one CPU to another.  We must
+		 * update the CPU pointer in the trap frame such that
+		 * we don't restore the wrong CPU pointer when
+		 * returning from the trap.
+		 */
+		frame->fixreg[13] = (vaddr_t)curcpu();
+#endif
 		KERNEL_UNLOCK();
+		if (error == 0)
+			return;
 
 		if (curpcb->pcb_onfault) {
 			frame->srr0 = curpcb->pcb_onfault;
@@ -155,11 +168,9 @@ trap(struct trapframe *frame)
 
 	case EXC_DSE|EXC_USER:
 		pm = p->p_vmspace->vm_map.pmap;
-		slbd = pmap_slbd_lookup(pm, frame->dar);
-		if (slbd) {
-			pmap_slbd_cache(pm, slbd);
+		error = pmap_slbd_fault(pm, frame->dar);
+		if (error == 0)
 			break;
-		}
 		frame->dsisr = 0;
 		/* FALLTHROUGH */
 
@@ -174,9 +185,11 @@ trap(struct trapframe *frame)
 		error = uvm_fault(map, trunc_page(va), 0, ftype);
 		KERNEL_UNLOCK();
 		if (error) {
+#ifdef TRAP_DEBUG
 			printf("type %x dar 0x%lx dsisr 0x%lx %s\r\n",
 			    type, frame->dar, frame->dsisr, p->p_p->ps_comm);
 			dumpframe(frame);
+#endif
 
 			if (error == ENOMEM) {
 				sig = SIGKILL;
@@ -200,11 +213,9 @@ trap(struct trapframe *frame)
 
 	case EXC_ISE|EXC_USER:
 		pm = p->p_vmspace->vm_map.pmap;
-		slbd = pmap_slbd_lookup(pm, frame->srr0);
-		if (slbd) {
-			pmap_slbd_cache(pm, slbd);
+		error = pmap_slbd_fault(pm, frame->srr0);
+		if (error == 0)
 			break;
-		}
 		/* FALLTHROUGH */
 
 	case EXC_ISI|EXC_USER:
@@ -215,9 +226,11 @@ trap(struct trapframe *frame)
 		error = uvm_fault(map, trunc_page(va), 0, ftype);
 		KERNEL_UNLOCK();
 		if (error) {
+#ifdef TRAP_DEBUG
 			printf("type %x srr0 0x%lx %s\r\n",
 			    type, frame->srr0, p->p_p->ps_comm);
 			dumpframe(frame);
+#endif
 
 			if (error == ENOMEM) {
 				sig = SIGKILL;
@@ -267,23 +280,30 @@ trap(struct trapframe *frame)
 		break;
 
 	case EXC_FPU|EXC_USER:
-		restore_vsx(p);
+		if ((frame->srr1 & (PSL_FP|PSL_VEC|PSL_VSX)) == 0)
+			restore_vsx(p);
 		curpcb->pcb_flags |= PCB_FP;
 		frame->srr1 |= PSL_FP;
 		break;
 
 	case EXC_VEC|EXC_USER:
-		restore_vsx(p);
+		if ((frame->srr1 & (PSL_FP|PSL_VEC|PSL_VSX)) == 0)
+			restore_vsx(p);
 		curpcb->pcb_flags |= PCB_VEC;
 		frame->srr1 |= PSL_VEC;
 		break;
 
 	default:
 	fatal:
+#ifdef DDB
+		db_printf("trap type %x srr1 %lx at %lx lr %lx\n",
+		    type, frame->srr1, frame->srr0, frame->lr);
+		db_ktrap(0, frame);
+#endif
 		panic("trap type %x srr1 %lx at %lx lr %lx",
 		    type, frame->srr1, frame->srr0, frame->lr);
 	}
-
+out:
 	userret(p);
 }
 

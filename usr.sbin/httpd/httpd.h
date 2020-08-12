@@ -1,4 +1,4 @@
-/*	$OpenBSD: httpd.h,v 1.146 2020/02/09 09:44:04 florian Exp $	*/
+/*	$OpenBSD: httpd.h,v 1.149 2020/08/03 11:05:24 benno Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2015 Reyk Floeter <reyk@openbsd.org>
@@ -121,24 +121,12 @@ struct ctl_flags {
 	uint8_t		 cf_tls_sid[TLS_MAX_SESSION_ID_LENGTH];
 };
 
-enum key_type {
-	KEY_TYPE_NONE		= 0,
-	KEY_TYPE_COOKIE,
-	KEY_TYPE_HEADER,
-	KEY_TYPE_PATH,
-	KEY_TYPE_QUERY,
-	KEY_TYPE_URL,
-	KEY_TYPE_MAX
-};
-
 TAILQ_HEAD(kvlist, kv);
 RB_HEAD(kvtree, kv);
 
 struct kv {
 	char			*kv_key;
 	char			*kv_value;
-
-	enum key_type		 kv_type;
 
 #define KV_FLAG_INVALID		 0x01
 #define KV_FLAG_GLOBBING	 0x02
@@ -722,7 +710,6 @@ void		 event_again(struct event *, int, short,
 int		 expand_string(char *, size_t, const char *, const char *);
 const char	*url_decode(char *);
 char		*url_encode(const char *);
-const char	*canonicalize_host(const char *, char *, size_t);
 const char	*canonicalize_path(const char *, char *, size_t);
 size_t		 path_info(char *);
 char		*escape_html(const char *);
@@ -744,8 +731,6 @@ void		 kv_delete(struct kvtree *, struct kv *);
 struct kv	*kv_extend(struct kvtree *, struct kv *, char *);
 void		 kv_purge(struct kvtree *);
 void		 kv_free(struct kv *);
-struct kv	*kv_inherit(struct kv *, struct kv *);
-int		 kv_log(struct evbuffer *, struct kv *);
 struct kv	*kv_find(struct kvtree *, struct kv *);
 int		 kv_cmp(struct kv *, struct kv *);
 struct media_type
@@ -764,7 +749,6 @@ struct auth	*auth_add(struct serverauth *, struct auth *);
 struct auth	*auth_byid(struct serverauth *, uint32_t);
 void		 auth_free(struct serverauth *, struct auth *);
 const char	*print_host(struct sockaddr_storage *, char *, size_t);
-const char	*print_time(struct timeval *, struct timeval *, char *, size_t);
 const char	*printb_flags(const uint32_t, const char *);
 void		 getmonotime(struct timeval *);
 

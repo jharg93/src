@@ -1,4 +1,4 @@
-/*	$OpenBSD: lib.c,v 1.39 2020/06/26 15:57:39 millert Exp $	*/
+/*	$OpenBSD: lib.c,v 1.41 2020/07/30 17:46:54 millert Exp $	*/
 /****************************************************************
 Copyright (C) Lucent Technologies 1997
 All Rights Reserved
@@ -32,7 +32,6 @@ THIS SOFTWARE.
 #include <stdarg.h>
 #include <limits.h>
 #include "awk.h"
-#include "ytab.h"
 
 char	EMPTY[] = { '\0' };
 FILE	*infile	= NULL;
@@ -674,12 +673,11 @@ void error()
 			fprintf(stderr, " source line number %d", curnode->lineno);
 		else if (lineno)
 			fprintf(stderr, " source line number %d", lineno);
+		if (compile_time == COMPILING && cursource() != NULL)
+			fprintf(stderr, " source file %s", cursource());
+		fprintf(stderr, "\n");
+		eprint();
 	}
-
-	if (compile_time == COMPILING && cursource() != NULL)
-		fprintf(stderr, " source file %s", cursource());
-	fprintf(stderr, "\n");
-	eprint();
 }
 
 void eprint(void)	/* try to print context around error */

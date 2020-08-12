@@ -1,4 +1,4 @@
-/*	$OpenBSD: b.c,v 1.32 2020/06/26 15:57:39 millert Exp $	*/
+/*	$OpenBSD: b.c,v 1.34 2020/07/30 17:45:44 millert Exp $	*/
 /****************************************************************
 Copyright (C) Lucent Technologies 1997
 All Rights Reserved
@@ -33,7 +33,7 @@ THIS SOFTWARE.
 #include <string.h>
 #include <stdlib.h>
 #include "awk.h"
-#include "ytab.h"
+#include "awkgram.tab.h"
 
 #define MAXLIN 22
 
@@ -692,7 +692,7 @@ bool fnematch(fa *pfa, FILE *f, char **pbuf, int *pbufsize, int quantum)
 						FATAL("stream '%.30s...' too long", buf);
 				buf[k++] = (c = getc(f)) != EOF ? c : 0;
 			}
-			c = buf[j];
+			c = (uschar)buf[j];
 			/* assert(c < NCHARS); */
 
 			if ((ns = pfa->gototab[s][c]) != 0)

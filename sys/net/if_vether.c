@@ -1,4 +1,4 @@
-/* $OpenBSD: if_vether.c,v 1.30 2018/01/09 15:24:24 bluhm Exp $ */
+/* $OpenBSD: if_vether.c,v 1.34 2020/08/09 14:33:49 mvs Exp $ */
 
 /*
  * Copyright (c) 2009 Theo de Raadt
@@ -36,7 +36,7 @@
 
 void	vetherattach(int);
 int	vetherioctl(struct ifnet *, u_long, caddr_t);
-void	vetherstart(struct ifnet *);
+void	vetherqstart(struct ifqueue *);
 int	vether_clone_create(struct if_clone *, int);
 int	vether_clone_destroy(struct ifnet *);
 int	vether_media_change(struct ifnet *);
@@ -83,11 +83,12 @@ vether_clone_create(struct if_clone *ifc, int unit)
 
 	ifp->if_softc = sc;
 	ifp->if_ioctl = vetherioctl;
-	ifp->if_start = vetherstart;
-	IFQ_SET_MAXLEN(&ifp->if_snd, IFQ_MAXLEN);
+	ifp->if_qstart = vetherqstart;
+	ifq_set_maxlen(&ifp->if_snd, IFQ_MAXLEN);
 
 	ifp->if_hardmtu = ETHER_MAX_HARDMTU_LEN;
 	ifp->if_capabilities = IFCAP_VLAN_MTU;
+	ifp->if_xflags = IFXF_CLONED | IFXF_MPSAFE;
 
 	ifmedia_init(&sc->sc_media, 0, vether_media_change,
 	    vether_media_status);
@@ -116,15 +117,12 @@ vether_clone_destroy(struct ifnet *ifp)
  * and we only need to discard the packets.
  */
 void
-vetherstart(struct ifnet *ifp)
+vetherqstart(struct ifqueue *ifq)
 {
+	struct ifnet		*ifp = ifq->ifq_if;
 	struct mbuf		*m;
 
-	for (;;) {
-		IFQ_DEQUEUE(&ifp->if_snd, m);
-		if (m == NULL)
-			return;
-
+	while ((m = ifq_dequeue(ifq)) != NULL) {
 #if NBPFILTER > 0
 		if (ifp->if_bpf)
 			bpf_mtap(ifp->if_bpf, m, BPF_DIRECTION_OUT);

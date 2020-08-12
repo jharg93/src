@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_zyd.c,v 1.123 2020/04/02 17:36:32 stsp Exp $	*/
+/*	$OpenBSD: if_zyd.c,v 1.125 2020/07/31 10:49:33 mglocker Exp $	*/
 
 /*-
  * Copyright (c) 2006 by Damien Bergamini <damien.bergamini@free.fr>
@@ -518,7 +518,6 @@ zyd_close_pipes(struct zyd_softc *sc)
 
 	for (i = 0; i < ZYD_ENDPT_CNT; i++) {
 		if (sc->zyd_ep[i] != NULL) {
-			usbd_abort_pipe(sc->zyd_ep[i]);
 			usbd_close_pipe(sc->zyd_ep[i]);
 			sc->zyd_ep[i] = NULL;
 		}
@@ -2251,7 +2250,7 @@ zyd_start(struct ifnet *ifp)
 			break;
 
 		/* encapsulate and send data frames */
-		IFQ_DEQUEUE(&ifp->if_snd, m);
+		m = ifq_dequeue(&ifp->if_snd);
 		if (m == NULL)
 			break;
 #if NBPFILTER > 0

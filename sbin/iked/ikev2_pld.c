@@ -1,4 +1,4 @@
-/*	$OpenBSD: ikev2_pld.c,v 1.87 2020/06/09 21:53:26 tobhe Exp $	*/
+/*	$OpenBSD: ikev2_pld.c,v 1.91 2020/08/11 20:51:06 tobhe Exp $	*/
 
 /*
  * Copyright (c) 2019 Tobias Heider <tobias.heider@stusta.de>
@@ -54,8 +54,8 @@ int	 ikev2_pld_sa(struct iked *, struct ikev2_payload *,
 	    struct iked_message *, size_t, size_t);
 int	 ikev2_validate_xform(struct iked_message *, size_t, size_t,
 	    struct ikev2_transform *);
-int	 ikev2_pld_xform(struct iked *, struct ikev2_sa_proposal *,
-	    struct iked_message *, size_t, size_t);
+int	 ikev2_pld_xform(struct iked *, struct iked_message *,
+	    size_t, size_t);
 int	 ikev2_validate_attr(struct iked_message *, size_t, size_t,
 	    struct ikev2_attribute *);
 int	 ikev2_pld_attr(struct iked *, struct ikev2_transform *,
@@ -430,7 +430,7 @@ ikev2_pld_sa(struct iked *env, struct ikev2_payload *pld,
 		 * Parse the attached transforms
 		 */
 		if (sap.sap_transforms &&
-		    ikev2_pld_xform(env, &sap, msg, offset, total) != 0) {
+		    ikev2_pld_xform(env, msg, offset, total) != 0) {
 			log_debug("%s: invalid proposal transforms", __func__);
 			return (-1);
 		}
@@ -472,8 +472,8 @@ ikev2_validate_xform(struct iked_message *msg, size_t offset, size_t total,
 }
 
 int
-ikev2_pld_xform(struct iked *env, struct ikev2_sa_proposal *sap,
-    struct iked_message *msg, size_t offset, size_t total)
+ikev2_pld_xform(struct iked *env, struct iked_message *msg,
+    size_t offset, size_t total)
 {
 	struct ikev2_transform		 xfrm;
 	char				 id[BUFSIZ];
@@ -540,7 +540,7 @@ ikev2_pld_xform(struct iked *env, struct ikev2_sa_proposal *sap,
 	offset += xfrm_length;
 	total -= xfrm_length;
 	if (xfrm.xfrm_more == IKEV2_XFORM_MORE)
-		ret = ikev2_pld_xform(env, sap, msg, offset, total);
+		ret = ikev2_pld_xform(env, msg, offset, total);
 	else if (total != 0) {
 		/* No more transforms but still some data left. */
 		log_debug("%s: less data than specified, %zu bytes left",
@@ -873,7 +873,7 @@ ikev2_pld_certreq(struct iked *env, struct ikev2_payload *pld,
 		return (-1);
 	}
 	cr->cr_type = cert.cert_type;
-	SLIST_INSERT_HEAD(&msg->msg_parent->msg_certreqs, cr, cr_entry);
+	SIMPLEQ_INSERT_TAIL(&msg->msg_parent->msg_certreqs, cr, cr_entry);
 
 	return (0);
 }
@@ -1123,6 +1123,14 @@ ikev2_pld_notify(struct iked *env, struct ikev2_payload *pld,
 		log_debug("%s: rekey %s spi %s", __func__,
 		    print_map(n.n_protoid, ikev2_saproto_map),
 		    print_spi(rekey->spi, n.n_spisize));
+		break;
+	case IKEV2_N_TEMPORARY_FAILURE:
+		if (!msg->msg_e) {
+			log_debug("%s: IKEV2_N_TEMPORARY_FAILURE not encrypted",
+			    __func__);
+			return (-1);
+		}
+		msg->msg_parent->msg_flags |= IKED_MSG_FLAGS_TEMPORARY_FAILURE;
 		break;
 	case IKEV2_N_IPCOMP_SUPPORTED:
 		if (!msg->msg_e) {
@@ -1476,7 +1484,7 @@ ikev2_pld_delete(struct iked *env, struct ikev2_payload *pld,
 				break;
 			}
 		}
-		log_info("%sdeleted %zu SPI%s: %.*s",
+		log_debug("%sdeleted %zu SPI%s: %.*s",
 		    SPI_SA(sa, NULL), found,
 		    found == 1 ? "" : "s",
 		    spibuf ? ibuf_strlen(spibuf) : 0,

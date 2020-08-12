@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_smsc.c,v 1.35 2020/06/09 07:43:39 gerhard Exp $	*/
+/*	$OpenBSD: if_smsc.c,v 1.37 2020/07/31 10:49:32 mglocker Exp $	*/
 /* $FreeBSD: src/sys/dev/usb/net/if_smsc.c,v 1.1 2012/08/15 04:03:55 gonzo Exp $ */
 /*-
  * Copyright (c) 2012
@@ -698,7 +698,6 @@ smsc_stop(struct smsc_softc *sc)
 
 	/* Stop transfers. */
 	if (sc->sc_ep[SMSC_ENDPT_RX] != NULL) {
-		usbd_abort_pipe(sc->sc_ep[SMSC_ENDPT_RX]);
 		err = usbd_close_pipe(sc->sc_ep[SMSC_ENDPT_RX]);
 		if (err) {
 			printf("%s: close rx pipe failed: %s\n",
@@ -708,7 +707,6 @@ smsc_stop(struct smsc_softc *sc)
 	}
 
 	if (sc->sc_ep[SMSC_ENDPT_TX] != NULL) {
-		usbd_abort_pipe(sc->sc_ep[SMSC_ENDPT_TX]);
 		err = usbd_close_pipe(sc->sc_ep[SMSC_ENDPT_TX]);
 		if (err) {
 			printf("%s: close tx pipe failed: %s\n",
@@ -718,7 +716,6 @@ smsc_stop(struct smsc_softc *sc)
 	}
 
 	if (sc->sc_ep[SMSC_ENDPT_INTR] != NULL) {
-		usbd_abort_pipe(sc->sc_ep[SMSC_ENDPT_INTR]);
 		err = usbd_close_pipe(sc->sc_ep[SMSC_ENDPT_INTR]);
 		if (err) {
 			printf("%s: close intr pipe failed: %s\n",
@@ -1298,7 +1295,7 @@ smsc_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 	m_freem(c->sc_mbuf);
 	c->sc_mbuf = NULL;
 
-	if (IFQ_IS_EMPTY(&ifp->if_snd) == 0)
+	if (ifq_empty(&ifp->if_snd) == 0)
 		smsc_start(ifp);
 
 	splx(s);

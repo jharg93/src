@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_mpip.c,v 1.9 2020/06/17 06:45:22 dlg Exp $ */
+/*	$OpenBSD: if_mpip.c,v 1.11 2020/07/10 13:26:41 patrick Exp $ */
 
 /*
  * Copyright (c) 2015 Rafael Zalamena <rzalamena@openbsd.org>
@@ -117,7 +117,7 @@ mpip_clone_create(struct if_clone *ifc, int unit)
 	ifp->if_rtrequest = p2p_rtrequest;
 	ifp->if_mtu = 1500;
 	ifp->if_hardmtu = 65535;
-	IFQ_SET_MAXLEN(&ifp->if_snd, IFQ_MAXLEN);
+	ifq_set_maxlen(&ifp->if_snd, IFQ_MAXLEN);
 
 	if_attach(ifp);
 	if_counters_alloc(ifp);
@@ -681,19 +681,19 @@ mpip_start(struct ifnet *ifp)
 	uint8_t tos, prio, ttl;
 
 	if (!ISSET(ifp->if_flags, IFF_RUNNING) || n == NULL) {
-		IFQ_PURGE(&ifp->if_snd);
+		ifq_purge(&ifp->if_snd);
 		return;
 	}
 
 	rt = rtalloc(sstosa(&n->n_nexthop), RT_RESOLVE, sc->sc_rdomain);
 	if (!rtisvalid(rt)) {
-		IFQ_PURGE(&ifp->if_snd);
+		ifq_purge(&ifp->if_snd);
 		goto rtfree;
 	}
 
 	ifp0 = if_get(rt->rt_ifidx);
 	if (ifp0 == NULL) {
-		IFQ_PURGE(&ifp->if_snd);
+		ifq_purge(&ifp->if_snd);
 		goto rtfree;
 	}
 

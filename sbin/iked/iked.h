@@ -1,4 +1,4 @@
-/*	$OpenBSD: iked.h,v 1.152 2020/06/03 17:56:42 tobhe Exp $	*/
+/*	$OpenBSD: iked.h,v 1.155 2020/08/11 20:51:06 tobhe Exp $	*/
 
 /*
  * Copyright (c) 2019 Tobias Heider <tobias.heider@stusta.de>
@@ -455,6 +455,7 @@ struct iked_sa {
 	struct ibuf			*sa_1stmsg;	/* for initiator AUTH */
 	struct ibuf			*sa_2ndmsg;	/* for responder AUTH */
 	struct iked_id			 sa_localauth;	/* local AUTH message */
+	struct iked_id			 sa_peerauth;	/* peer AUTH message */
 	int				 sa_sigsha2;	/* use SHA2 for signatures */
 
 	struct iked_id			 sa_iid;	/* initiator id */
@@ -498,6 +499,7 @@ struct iked_sa {
 #define IKED_IKE_SA_KEEPALIVE_TIMEOUT	 20
 
 	struct iked_timer		 sa_rekey;	/* rekey timeout */
+	int				 sa_tmpfail;
 
 	struct iked_msgqueue		 sa_requests;	/* request queue */
 #define IKED_RETRANSMIT_TIMEOUT		 2		/* 2 seconds */
@@ -523,9 +525,9 @@ RB_HEAD(iked_addrpool6, iked_sa);
 struct iked_certreq {
 	struct ibuf			*cr_data;
 	uint8_t				 cr_type;
-	SLIST_ENTRY(iked_certreq)	 cr_entry;
+	SIMPLEQ_ENTRY(iked_certreq)	 cr_entry;
 };
-SLIST_HEAD(iked_certreqs, iked_certreq);
+SIMPLEQ_HEAD(iked_certreqs, iked_certreq);
 
 struct iked_message {
 	struct ibuf		*msg_data;
@@ -601,6 +603,7 @@ struct iked_message {
 #define IKED_MSG_FLAGS_INVALID_KE			0x0040
 #define IKED_MSG_FLAGS_IPCOMP_SUPPORTED			0x0080
 #define IKED_MSG_FLAGS_USE_TRANSPORT			0x0100
+#define IKED_MSG_FLAGS_TEMPORARY_FAILURE		0x0200
 
 
 struct iked_user {

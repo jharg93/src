@@ -1,4 +1,4 @@
-/* $OpenBSD: imxgpio.c,v 1.3 2018/08/08 11:06:47 patrick Exp $ */
+/* $OpenBSD: imxgpio.c,v 1.5 2020/07/17 08:07:34 patrick Exp $ */
 /*
  * Copyright (c) 2007,2009 Dale Rahn <drahn@openbsd.org>
  * Copyright (c) 2012-2013 Patrick Wildt <patrick@blueri.se>
@@ -78,12 +78,13 @@ int imxgpio_get_pin(void *, uint32_t *);
 void imxgpio_set_pin(void *, uint32_t *, int);
 
 int imxgpio_intr(void *);
-void *imxgpio_intr_establish(void *, int *, int, int (*)(void *),
-    void *, char *);
+void *imxgpio_intr_establish(void *, int *, int, struct cpu_info *,
+    int (*)(void *), void *, char *);
 void imxgpio_intr_disestablish(void *);
 void imxgpio_recalc_ipl(struct imxgpio_softc *);
 void imxgpio_intr_enable(void *);
 void imxgpio_intr_disable(void *);
+void imxgpio_intr_barrier(void *);
 
 
 struct cfattach	imxgpio_ca = {
@@ -135,6 +136,7 @@ imxgpio_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_ic.ic_disestablish = imxgpio_intr_disestablish;
 	sc->sc_ic.ic_enable = imxgpio_intr_enable;
 	sc->sc_ic.ic_disable = imxgpio_intr_disable;
+	sc->sc_ic.ic_barrier = imxgpio_intr_barrier;
 	fdt_intr_register(&sc->sc_ic);
 
 	printf("\n");
@@ -231,7 +233,7 @@ imxgpio_intr(void *cookie)
 
 void *
 imxgpio_intr_establish(void *cookie, int *cells, int ipl,
-    int (*func)(void *), void *arg, char *name)
+    struct cpu_info *ci, int (*func)(void *), void *arg, char *name)
 {
 	struct imxgpio_softc	*sc = (struct imxgpio_softc *)cookie;
 	struct intrhand		*ih;
@@ -246,6 +248,9 @@ imxgpio_intr_establish(void *cookie, int *cells, int ipl,
 	if (sc->sc_handlers[irqno] != NULL)
 		panic("%s: irqnumber %d reused: %s", __func__,
 		     irqno, name);
+
+	if (ci != NULL && !CPU_IS_PRIMARY(ci))
+		return NULL;
 
 	ih = malloc(sizeof(*ih), M_DEVBUF, M_WAITOK);
 	ih->ih_func = func;
@@ -405,4 +410,16 @@ imxgpio_intr_disable(void *cookie)
 	mask &= ~(1 << ih->ih_irq);
 	bus_space_write_4(sc->sc_iot, sc->sc_ioh, GPIO_IMR, mask);
 	splx(s);
+}
+
+void
+imxgpio_intr_barrier(void *cookie)
+{
+	struct intrhand		*ih = cookie;
+	struct imxgpio_softc	*sc = ih->ih_sc;
+
+	if (sc->sc_ih_h && ih->ih_irq >= 16)
+		intr_barrier(sc->sc_ih_h);
+	else if (sc->sc_ih_l)
+		intr_barrier(sc->sc_ih_l);
 }

@@ -9,9 +9,9 @@
 ./usr/lib/crtbeginS.o
 ./usr/lib/crtend.o
 ./usr/lib/crtendS.o
-./usr/lib/libLLVM.so.2.0
-./usr/lib/libc++.so.4.0
-./usr/lib/libc++abi.so.2.1
+./usr/lib/libLLVM.so.4.0
+./usr/lib/libc++.so.5.0
+./usr/lib/libc++abi.so.3.0
 ./usr/lib/libcompiler_rt.a
 ./usr/libdata/perl5/powerpc64-openbsd
 ./usr/libdata/perl5/powerpc64-openbsd/.packlist
@@ -428,6 +428,11 @@
 ./usr/libdata/perl5/powerpc64-openbsd/threads.pm
 ./usr/libdata/perl5/powerpc64-openbsd/threads/shared.pm
 ./usr/local/libdata/perl5/site_perl/powerpc64-openbsd
+./usr/mdec/boot
+./usr/sbin/ZZZ
+./usr/sbin/apm
+./usr/sbin/apmd
 ./usr/sbin/eeprom
 ./usr/sbin/pcidump
 ./usr/sbin/wsconscfg
+./usr/sbin/zzz

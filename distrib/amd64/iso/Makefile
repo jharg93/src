@@ -1,12 +1,11 @@
-#	$OpenBSD: Makefile,v 1.37 2020/06/08 15:21:38 deraadt Exp $
+#	$OpenBSD: Makefile,v 1.39 2020/08/05 04:23:30 deraadt Exp $
 
 FS=		install${OSrev}.img
-FSSIZE=		1032192
+FSSIZE=		1359872
 FSTYPE=		install360
 CDROM=		install${OSrev}.iso
 
 MOUNT_POINT=	/mnt
-MTREE=		${UTILS}/mtree.conf
 
 RELXDIR?=	/home/relx-${MACHINE}
 RELDIR?=	/home/rel-${MACHINE}

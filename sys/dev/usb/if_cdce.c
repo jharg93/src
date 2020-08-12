@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_cdce.c,v 1.77 2020/06/09 07:43:39 gerhard Exp $ */
+/*	$OpenBSD: if_cdce.c,v 1.79 2020/07/31 10:49:32 mglocker Exp $ */
 
 /*
  * Copyright (c) 1997, 1998, 1999, 2000-2003 Bill Paul <wpaul@windriver.com>
@@ -442,7 +442,6 @@ cdce_stop(struct cdce_softc *sc)
 	ifq_clr_oactive(&ifp->if_snd);
 
 	if (sc->cdce_bulkin_pipe != NULL) {
-		usbd_abort_pipe(sc->cdce_bulkin_pipe);
 		err = usbd_close_pipe(sc->cdce_bulkin_pipe);
 		if (err)
 			printf("%s: close rx pipe failed: %s\n",
@@ -451,7 +450,6 @@ cdce_stop(struct cdce_softc *sc)
 	}
 
 	if (sc->cdce_bulkout_pipe != NULL) {
-		usbd_abort_pipe(sc->cdce_bulkout_pipe);
 		err = usbd_close_pipe(sc->cdce_bulkout_pipe);
 		if (err)
 			printf("%s: close tx pipe failed: %s\n",
@@ -460,7 +458,6 @@ cdce_stop(struct cdce_softc *sc)
 	}
 
 	if (sc->cdce_intr_pipe != NULL) {
-		usbd_abort_pipe(sc->cdce_intr_pipe);
 		err = usbd_close_pipe(sc->cdce_intr_pipe);
 		if (err)
 			printf("%s: close interrupt pipe failed: %s\n",
@@ -812,7 +809,7 @@ cdce_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 	if (err)
 		ifp->if_oerrors++;
 
-	if (IFQ_IS_EMPTY(&ifp->if_snd) == 0)
+	if (ifq_empty(&ifp->if_snd) == 0)
 		cdce_start(ifp);
 
 	splx(s);

@@ -1,13 +1,13 @@
-# $OpenBSD: Makefile,v 1.13 2019/06/23 22:07:41 patrick Exp $
+# $OpenBSD: Makefile,v 1.15 2020/08/09 15:56:40 patrick Exp $
 
 LIB=	LLVMX86CodeGen
 NOPROFILE=
 
 CPPFLAGS+=	-I${.OBJDIR}/../include/llvm/X86 -I${LLVM_SRCS}/lib/Target/X86
 
-SRCS+=	ShadowCallStack.cpp\
-	X86AsmPrinter.cpp \
+SRCS+=	X86AsmPrinter.cpp \
 	X86AvoidStoreForwardingBlocks.cpp \
+	X86AvoidTrailingCall.cpp \
 	X86CallFrameOptimization.cpp \
 	X86CallLowering.cpp \
 	X86CallingConv.cpp \
@@ -28,6 +28,7 @@ SRCS+=	ShadowCallStack.cpp\
 	X86ISelDAGToDAG.cpp \
 	X86ISelLowering.cpp \
 	X86IndirectBranchTracking.cpp \
+	X86IndirectThunks.cpp \
 	X86InstrFMA3Info.cpp \
 	X86InstrFoldTables.cpp \
 	X86InstrInfo.cpp \
@@ -35,13 +36,14 @@ SRCS+=	ShadowCallStack.cpp\
 	X86InterleavedAccess.cpp \
 	X86InsertPrefetch.cpp \
 	X86LegalizerInfo.cpp \
+	X86LoadValueInjectionLoadHardening.cpp \
+	X86LoadValueInjectionRetHardening.cpp \
 	X86MCInstLower.cpp \
 	X86MachineFunctionInfo.cpp \
 	X86MacroFusion.cpp \
 	X86PadShortFunction.cpp \
 	X86RegisterBankInfo.cpp \
 	X86RegisterInfo.cpp \
-	X86RetpolineThunks.cpp \
 	X86ReturnProtectorLowering.cpp \
 	X86SelectionDAGInfo.cpp \
 	X86ShuffleDecodeConstantPool.cpp \
@@ -55,4 +57,4 @@ SRCS+=	ShadowCallStack.cpp\
 	X86WinEHState.cpp \
 	X86OptimizeLEAs.cpp
 
-.PATH:	${.CURDIR}/../../../llvm/lib/Target/X86
+.PATH:	${.CURDIR}/../../../llvm/llvm/lib/Target/X86

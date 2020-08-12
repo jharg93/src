@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_otus.c,v 1.65 2019/11/12 07:47:30 mpi Exp $	*/
+/*	$OpenBSD: if_otus.c,v 1.67 2020/07/31 10:49:32 mglocker Exp $	*/
 
 /*-
  * Copyright (c) 2009 Damien Bergamini <damien.bergamini@free.fr>
@@ -555,10 +555,8 @@ otus_close_pipes(struct otus_softc *sc)
 
 	if (sc->data_rx_pipe != NULL)
 		usbd_close_pipe(sc->data_rx_pipe);
-	if (sc->cmd_rx_pipe != NULL) {
-		usbd_abort_pipe(sc->cmd_rx_pipe);
+	if (sc->cmd_rx_pipe != NULL)
 		usbd_close_pipe(sc->cmd_rx_pipe);
-	}
 	if (sc->ibuf != NULL)
 		free(sc->ibuf, M_USBDEV, sc->ibuflen);
 	if (sc->data_tx_pipe != NULL)
@@ -1428,7 +1426,7 @@ otus_start(struct ifnet *ifp)
 			break;
 
 		/* Encapsulate and send data frames. */
-		IFQ_DEQUEUE(&ifp->if_snd, m);
+		m = ifq_dequeue(&ifp->if_snd);
 		if (m == NULL)
 			break;
 #if NBPFILTER > 0

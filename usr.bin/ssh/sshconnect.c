@@ -1,4 +1,4 @@
-/* $OpenBSD: sshconnect.c,v 1.329 2020/03/13 04:01:56 djm Exp $ */
+/* $OpenBSD: sshconnect.c,v 1.331 2020/08/11 09:49:57 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -77,11 +77,14 @@ expand_proxy_command(const char *proxy_command, const char *user,
     const char *host, const char *host_arg, int port)
 {
 	char *tmp, *ret, strport[NI_MAXSERV];
+	const char *keyalias = options.host_key_alias ?
+	     options.host_key_alias : host_arg;
 
 	snprintf(strport, sizeof strport, "%d", port);
 	xasprintf(&tmp, "exec %s", proxy_command);
 	ret = percent_expand(tmp,
 	    "h", host,
+	    "k", keyalias,
 	    "n", host_arg,
 	    "p", strport,
 	    "r", options.user,
@@ -1392,7 +1395,8 @@ maybe_add_key_to_agent(const char *authfile, struct sshkey *private,
 	if (sshkey_is_sk(private))
 		skprovider = options.sk_provider;
 	if ((r = ssh_add_identity_constrained(auth_sock, private,
-	    comment == NULL ? authfile : comment, 0,
+	    comment == NULL ? authfile : comment,
+	    options.add_keys_to_agent_lifespan,
 	    (options.add_keys_to_agent == 3), 0, skprovider)) == 0)
 		debug("identity added to agent: %s", authfile);
 	else

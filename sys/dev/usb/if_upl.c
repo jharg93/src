@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_upl.c,v 1.76 2020/06/09 07:43:39 gerhard Exp $ */
+/*	$OpenBSD: if_upl.c,v 1.78 2020/07/31 10:49:32 mglocker Exp $ */
 /*	$NetBSD: if_upl.c,v 1.19 2002/07/11 21:14:26 augustss Exp $	*/
 /*
  * Copyright (c) 2000 The NetBSD Foundation, Inc.
@@ -510,7 +510,7 @@ upl_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 	m_freem(c->upl_mbuf);
 	c->upl_mbuf = NULL;
 
-	if (IFQ_IS_EMPTY(&ifp->if_snd) == 0)
+	if (ifq_empty(&ifp->if_snd) == 0)
 		upl_start(ifp);
 
 	splx(s);
@@ -795,7 +795,7 @@ upl_watchdog(struct ifnet *ifp)
 	upl_stop(sc);
 	upl_init(sc);
 
-	if (IFQ_IS_EMPTY(&ifp->if_snd) == 0)
+	if (ifq_empty(&ifp->if_snd) == 0)
 		upl_start(ifp);
 }
 
@@ -819,7 +819,6 @@ upl_stop(struct upl_softc *sc)
 
 	/* Stop transfers. */
 	if (sc->sc_ep[UPL_ENDPT_RX] != NULL) {
-		usbd_abort_pipe(sc->sc_ep[UPL_ENDPT_RX]);
 		err = usbd_close_pipe(sc->sc_ep[UPL_ENDPT_RX]);
 		if (err) {
 			printf("%s: close rx pipe failed: %s\n",
@@ -829,7 +828,6 @@ upl_stop(struct upl_softc *sc)
 	}
 
 	if (sc->sc_ep[UPL_ENDPT_TX] != NULL) {
-		usbd_abort_pipe(sc->sc_ep[UPL_ENDPT_TX]);
 		err = usbd_close_pipe(sc->sc_ep[UPL_ENDPT_TX]);
 		if (err) {
 			printf("%s: close tx pipe failed: %s\n",
@@ -839,7 +837,6 @@ upl_stop(struct upl_softc *sc)
 	}
 
 	if (sc->sc_ep[UPL_ENDPT_INTR] != NULL) {
-		usbd_abort_pipe(sc->sc_ep[UPL_ENDPT_INTR]);
 		err = usbd_close_pipe(sc->sc_ep[UPL_ENDPT_INTR]);
 		if (err) {
 			printf("%s: close intr pipe failed: %s\n",

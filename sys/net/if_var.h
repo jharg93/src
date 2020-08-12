@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_var.h,v 1.106 2020/07/04 08:06:08 anton Exp $	*/
+/*	$OpenBSD: if_var.h,v 1.112 2020/07/29 12:09:31 mvs Exp $	*/
 /*	$NetBSD: if.h,v 1.23 1996/05/07 02:40:27 thorpej Exp $	*/
 
 /*
@@ -139,10 +139,11 @@ struct ifnet {				/* and the entries */
 	caddr_t	if_pf_kif;		/* pf interface abstraction */
 	union {
 		struct srpl carp_s;	/* carp if list (used by !carp ifs) */
-		struct ifnet *carp_d;	/* ptr to carpdev (used by carp ifs) */
+		unsigned int carp_idx;	/* index of carpdev (used by carp
+						ifs) */
 	} if_carp_ptr;
 #define if_carp		if_carp_ptr.carp_s
-#define if_carpdev	if_carp_ptr.carp_d
+#define if_carpdevidx	if_carp_ptr.carp_idx
 	unsigned int if_index;		/* [I] unique index for this if */
 	short	if_timer;		/* time 'til if_watchdog called */
 	unsigned short if_flags;	/* [N] up/down, broadcast, etc. */
@@ -159,7 +160,7 @@ struct ifnet {				/* and the entries */
 	struct	task if_linkstatetask;	/* [I] task to do route updates */
 
 	/* procedure handles */
-	SRPL_HEAD(, ifih) if_inputs;	/* [K] input routines (dequeue) */
+	void	(*if_input)(struct ifnet *, struct mbuf *);
 	int	(*if_output)(struct ifnet *, struct mbuf *, struct sockaddr *,
 		     struct rtentry *);	/* output routine (enqueue) */
 					/* link level output function */
@@ -281,29 +282,6 @@ struct ifg_list {
 
 #define	IFNET_SLOWTIMO	1		/* granularity is 1 second */
 
-/*
- * IFQ compat on ifq API
- */
-
-#define	IFQ_ENQUEUE(ifq, m, err)					\
-do {									\
-	(err) = ifq_enqueue((ifq), (m));				\
-} while (/* CONSTCOND */0)
-
-#define	IFQ_DEQUEUE(ifq, m)						\
-do {									\
-	(m) = ifq_dequeue(ifq);						\
-} while (/* CONSTCOND */0)
-
-#define	IFQ_PURGE(ifq)							\
-do {									\
-	(void)ifq_purge(ifq);						\
-} while (/* CONSTCOND */0)
-
-#define	IFQ_LEN(ifq)			ifq_len(ifq)
-#define	IFQ_IS_EMPTY(ifq)		ifq_empty(ifq)
-#define	IFQ_SET_MAXLEN(ifq, len)	ifq_set_maxlen(ifq, len)
-
 #define IF_TXMIT_MIN			1
 #define IF_TXMIT_DEFAULT		16
 
@@ -368,11 +346,6 @@ void	ifa_add(struct ifnet *, struct ifaddr *);
 void	ifa_del(struct ifnet *, struct ifaddr *);
 void	ifa_update_broadaddr(struct ifnet *, struct ifaddr *,
 	    struct sockaddr *);
-
-void	if_ih_insert(struct ifnet *, int (*)(struct ifnet *, struct mbuf *,
-	    void *), void *);
-void	if_ih_remove(struct ifnet *, int (*)(struct ifnet *, struct mbuf *,
-	    void *), void *);
 
 void	if_addrhook_add(struct ifnet *, struct task *);
 void	if_addrhook_del(struct ifnet *, struct task *);

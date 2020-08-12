@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_wi_usb.c,v 1.71 2019/11/27 11:16:59 mpi Exp $ */
+/*	$OpenBSD: if_wi_usb.c,v 1.73 2020/07/31 10:49:33 mglocker Exp $ */
 
 /*
  * Copyright (c) 2003 Dale Rahn. All rights reserved.
@@ -416,7 +416,6 @@ wi_usb_detach(struct device *self, int flags)
 	}
 
 	if (sc->wi_usb_ep[WI_USB_ENDPT_INTR] != NULL) {
-		usbd_abort_pipe(sc->wi_usb_ep[WI_USB_ENDPT_INTR]);
 		err = usbd_close_pipe(sc->wi_usb_ep[WI_USB_ENDPT_INTR]);
 		if (err) {
 			printf("%s: close intr pipe failed: %s\n",
@@ -425,7 +424,6 @@ wi_usb_detach(struct device *self, int flags)
 		sc->wi_usb_ep[WI_USB_ENDPT_INTR] = NULL;
 	}
 	if (sc->wi_usb_ep[WI_USB_ENDPT_TX] != NULL) {
-		usbd_abort_pipe(sc->wi_usb_ep[WI_USB_ENDPT_TX]);
 		err = usbd_close_pipe(sc->wi_usb_ep[WI_USB_ENDPT_TX]);
 		if (err) {
 			printf("%s: close tx pipe failed: %s\n",
@@ -434,7 +432,6 @@ wi_usb_detach(struct device *self, int flags)
 		sc->wi_usb_ep[WI_USB_ENDPT_TX] = NULL;
 	}
 	if (sc->wi_usb_ep[WI_USB_ENDPT_RX] != NULL) {
-		usbd_abort_pipe(sc->wi_usb_ep[WI_USB_ENDPT_RX]);
 		err = usbd_close_pipe(sc->wi_usb_ep[WI_USB_ENDPT_RX]);
 		if (err) {
 			printf("%s: close rx pipe failed: %s\n",
@@ -1138,7 +1135,7 @@ wi_usb_txeof_frm(struct usbd_xfer *xfer, void *priv,
 
 	wi_usb_tx_unlock(sc);
 
-	if (!IFQ_IS_EMPTY(&ifp->if_snd))
+	if (!ifq_empty(&ifp->if_snd))
 		wi_start_usb(ifp);
 
 	splx(s);

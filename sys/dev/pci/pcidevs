@@ -1,4 +1,4 @@
-$OpenBSD: pcidevs,v 1.1928 2020/06/30 04:37:24 jmatthew Exp $
+$OpenBSD: pcidevs,v 1.1931 2020/07/30 08:28:44 stsp Exp $
 /*	$NetBSD: pcidevs,v 1.30 1997/06/24 06:20:24 thorpej Exp $	*/
 
 /*
@@ -342,6 +342,7 @@ vendor	UMIS		0x1cc4	Union Memory
 vendor	ROCKCHIP	0x1d87	Rockchip
 vendor	TEKRAM2		0x1de1	Tekram
 vendor	AMPERE		0x1def	Ampere
+vendor	SSSTC		0x1e95	SSSTC
 vendor	TEHUTI		0x1fc9	Tehuti Networks
 vendor	SUNIX2		0x1fd4	Sunix
 vendor	HINT		0x3388	Hint
@@ -720,6 +721,14 @@ product AMD 15_3X_PCIE_1	0x1424	15h PCIE
 product AMD 15_3X_PCIE_2	0x1425	15h PCIE
 product AMD 15_3X_PCIE_3	0x1426	15h PCIE
 product AMD 16_PCIE		0x1439	16h PCIE
+product AMD 17_6X_DF_0		0x1448	17h/6xh Data Fabric
+product AMD 17_6X_DF_1		0x1449	17h/6xh Data Fabric
+product AMD 17_6X_DF_2		0x144a	17h/6xh Data Fabric
+product AMD 17_6X_DF_3		0x144b	17h/6xh Data Fabric
+product AMD 17_6X_DF_4		0x144c	17h/6xh Data Fabric
+product AMD 17_6X_DF_5		0x144d	17h/6xh Data Fabric
+product AMD 17_6X_DF_6		0x144e	17h/6xh Data Fabric
+product AMD 17_6X_DF_7		0x144f	17h/6xh Data Fabric
 product AMD 17_RC		0x1450	17h Root Complex
 product AMD 17_IOMMU		0x1451	17h IOMMU
 product AMD 17_PCIE_1		0x1452	17h PCIE
@@ -800,6 +809,12 @@ product AMD 15_0X_DRAM		0x1602	15/0xh DRAM Cfg
 product AMD 15_0X_MISC		0x1603	15/0xh Misc Cfg
 product AMD 15_0X_CPU_PM	0x1604	15/0xh CPU Power
 product AMD 15_0X_HB		0x1605	15/0xh Host
+product AMD 17_6X_RC		0x1630	17h/6xh Root Complex
+product AMD 17_6X_IOMMU		0x1631	17h/6xh IOMMU
+product AMD 17_6X_HB		0x1632	17h/6xh Host
+product AMD 17_6X_PCIE_1	0x1634	17h/6xh PCIE
+product AMD 17_6X_PCIE_2	0x1635	17h/6xh PCIE
+product AMD 17_6X_XHCI		0x1639	17h/6xh xHCI
 product AMD 14_LINK		0x1700	14h Link Cfg
 product AMD 14_ADDR		0x1701	14h Address Map
 product AMD 14_DRAM		0x1702	14h DRAM Cfg
@@ -1081,6 +1096,7 @@ product ATHEROS AR5212_7	0x0019	AR5212
 product ATHEROS AR2413		0x001a	AR2413
 product ATHEROS AR5413		0x001b	AR5413
 product ATHEROS AR5424		0x001c	AR5424
+product ATHEROS AR2417		0x001d	AR2417
 product ATHEROS AR5416		0x0023	AR5416
 product ATHEROS AR5418		0x0024	AR5418
 product ATHEROS AR9160		0x0027	AR9160
@@ -1095,6 +1111,9 @@ product ATHEROS AR9485		0x0032	AR9485
 product ATHEROS AR9462		0x0034	AR9462
 product ATHEROS AR9565		0x0036	AR9565
 product ATHEROS QCA988X		0x003c	QCA986x/988x
+product ATHEROS QCA6174		0x003e	QCA6174
+product ATHEROS QCA6164		0x0041	QCA6164
+product ATHEROS QCA9377		0x0042	QCA9377
 product ATHEROS AR5210_AP	0x0207	AR5210
 product ATHEROS AR5212_IBM	0x1014	AR5212
 product ATHEROS AR5210_DEFAULT	0x1107	AR5210
@@ -1132,6 +1151,8 @@ product ATI KAVERI_22		0x131d	Kaveri Radeon R6
 product ATI PICASSO		0x15d8	Picasso
 product ATI RAVEN_VEGA		0x15dd	Radeon Vega
 product ATI RAVEN_VEGA_HDA	0x15de	Radeon Vega HD Audio
+product ATI RENOIR		0x1636	Renoir
+product ATI RENOIR_HDA		0x1637	Renoir HD Audio
 product ATI RADEON_HD6500D_HDA	0x1714	Radeon HD 6500D HD Audio
 product ATI RADEON_M241P	0x3150	Mobility Radeon X600
 product ATI FIREMV_2400_1	0x3151	FireMV 2400
@@ -3185,6 +3206,7 @@ product INTEL CORE3G_PCIE_4	0x015d	Core 3G PCIE
 product INTEL CORE3G_D_GT2	0x0162	HD Graphics 4000
 product INTEL CORE3G_M_GT2	0x0166	HD Graphics 4000
 product INTEL CORE3G_S_GT2	0x016a	HD Graphics P4000
+product INTEL WL_22500_2	0x02f0	Wi-Fi 6 AX201
 product INTEL 80303		0x0309	80303 IOP
 product INTEL 80312		0x030d	80312 I/O Companion
 product INTEL IOXAPIC_A		0x0326	IOxAPIC
@@ -7528,6 +7550,9 @@ product SONY CXD1947A		0x8009	CXD1947A FireWire
 product SONY CXD3222		0x8039	CXD3222 FireWire
 product SONY MEMSTICK_SLOT	0x808a	Memory Stick Slot
 product SONY RS780		0x9602	RS780
+
+/* Solid State Storage Technology Corporation products */
+product SSSTC CL1		0x9100	CL1
 
 /* Stallion Technologies products */
 product STALLION EASYIO		0x0003	EasyIO

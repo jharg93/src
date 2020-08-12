@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_upgt.c,v 1.85 2020/01/04 11:35:03 mpi Exp $ */
+/*	$OpenBSD: if_upgt.c,v 1.87 2020/07/31 10:49:32 mglocker Exp $ */
 
 /*
  * Copyright (c) 2007 Marcus Glocker <mglocker@openbsd.org>
@@ -447,14 +447,10 @@ upgt_detach(struct device *self, int flags)
 	s = splusb();
 
 	/* abort and close TX / RX pipes */
-	if (sc->sc_tx_pipeh != NULL) {
-		usbd_abort_pipe(sc->sc_tx_pipeh);
+	if (sc->sc_tx_pipeh != NULL)
 		usbd_close_pipe(sc->sc_tx_pipeh);
-	}
-	if (sc->sc_rx_pipeh != NULL) {
-		usbd_abort_pipe(sc->sc_rx_pipeh);
+	if (sc->sc_rx_pipeh != NULL)
 		usbd_close_pipe(sc->sc_rx_pipeh);
-	}
 
 	/* remove tasks and timeouts */
 	usb_rem_task(sc->sc_udev, &sc->sc_task_newstate);
@@ -1377,7 +1373,7 @@ upgt_start(struct ifnet *ifp)
 			if (ic->ic_state != IEEE80211_S_RUN)
 				break;
 
-			IFQ_DEQUEUE(&ifp->if_snd, m);
+			m = ifq_dequeue(&ifp->if_snd);
 			if (m == NULL)
 				break;
 

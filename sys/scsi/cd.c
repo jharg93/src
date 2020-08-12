@@ -1,4 +1,4 @@
-/*	$OpenBSD: cd.c,v 1.246 2020/06/30 18:43:36 krw Exp $	*/
+/*	$OpenBSD: cd.c,v 1.248 2020/08/11 15:23:57 krw Exp $	*/
 /*	$NetBSD: cd.c,v 1.100 1997/04/02 02:29:30 mycroft Exp $	*/
 
 /*
@@ -70,6 +70,7 @@
 
 #include <scsi/scsi_all.h>
 #include <scsi/cd.h>
+#include <scsi/scsi_debug.h>
 #include <scsi/scsi_disk.h>	/* rw_big and start_stop come from there */
 #include <scsi/scsiconf.h>
 
@@ -696,8 +697,8 @@ cdminphys(struct buf *bp)
 			bp->b_bcount = max;
 	}
 
-	if (link->adapter->dev_minphys != NULL)
-		(*link->adapter->dev_minphys)(bp, link);
+	if (link->bus->sb_adapter->dev_minphys != NULL)
+		(*link->bus->sb_adapter->dev_minphys)(bp, link);
 	else
 		minphys(bp);
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: lex.c,v 1.22 2020/06/23 16:54:40 millert Exp $	*/
+/*	$OpenBSD: lex.c,v 1.25 2020/07/30 17:45:44 millert Exp $	*/
 /****************************************************************
 Copyright (C) Lucent Technologies 1997
 All Rights Reserved
@@ -28,7 +28,7 @@ THIS SOFTWARE.
 #include <string.h>
 #include <ctype.h>
 #include "awk.h"
-#include "ytab.h"
+#include "awkgram.tab.h"
 
 extern YYSTYPE	yylval;
 extern bool	infunc;
@@ -158,7 +158,7 @@ static int gettok(char **pbuf, int *psz)	/* get next input token */
 		strtod(buf, &rem);	/* parse the number */
 		if (rem == buf) {	/* it wasn't a valid number at all */
 			buf[1] = 0;	/* return one character as token */
-			retc = buf[0];	/* character is its own type */
+			retc = (uschar)buf[0];	/* character is its own type */
 			unputstr(rem+1); /* put rest back for later */
 		} else {	/* some prefix was a number */
 			unputstr(rem);	/* put rest back for later */
@@ -551,7 +551,9 @@ int regexpr(void)
 			 */
 			if (!do_posix) {
 				if (c == '[') {
-					if (openclass == 0 || peek() == ':') {
+					int nextc = peek();
+					if (openclass == 0 || nextc == ':' ||
+					    nextc == '.' || nextc == '=') {
 						if (++openclass == 1)
 							cstart = bp;
 					}

@@ -1,4 +1,4 @@
-.\" $OpenBSD: iwx.4,v 1.2 2020/07/07 11:54:49 stsp Exp $
+.\" $OpenBSD: iwx.4,v 1.4 2020/08/01 16:24:38 stsp Exp $
 .\"
 .\" Copyright (c) 2020 Stefan Sperling <stsp@openbsd.org>
 .\"
@@ -14,18 +14,20 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: July 7 2020 $
+.Dd $Mdocdate: August 1 2020 $
 .Dt IWX 4
 .Os
 .Sh NAME
 .Nm iwx
-.Nd Intel AX200 IEEE 802.11a/ac/ax/b/g/n wireless network devices
+.Nd Intel AX200/AX201 IEEE 802.11a/ac/ax/b/g/n wireless network devices
 .Sh SYNOPSIS
 .Cd "iwx* at pci?"
 .Sh DESCRIPTION
 The
 .Nm
-driver provides support for Intel Wireless AX200 M.2 network adapters.
+driver provides support for Intel Wireless AX200 M.2 network adapters,
+and for Intel Wireless AX201 Integrated Connectivity (CNVi) network
+adapters with companion RF M.2 modules.
 .Pp
 These are the modes the
 .Nm
@@ -61,10 +63,14 @@ keys are configured using the
 .Qq Cm wpakey
 option.
 WPA-Enterprise networks require use of the wpa_supplicant package.
-.\"The
-.\".Nm
-.\"driver offloads both encryption and decryption of unicast data frames to the
-.\"hardware for the CCMP cipher.
+The
+.Nm
+driver offloads both encryption and decryption of unicast data frames to the
+hardware for the CCMP cipher.
+.Pp
+In BSS mode the driver supports background scanning;
+see
+.Xr ifconfig 8 .
 .Pp
 The
 .Nm
@@ -78,6 +84,7 @@ which are loaded when an interface is brought up:
 .Pp
 .Bl -tag -width Ds -offset indent -compact
 .It Pa /etc/firmware/iwx-cc-a0-48
+.It Pa /etc/firmware/iwx-QuZ-a0-hr-b0-48
 .El
 .Pp
 These firmware files are not free because Intel refuses to grant

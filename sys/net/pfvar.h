@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfvar.h,v 1.493 2019/11/17 08:25:05 otto Exp $ */
+/*	$OpenBSD: pfvar.h,v 1.495 2020/07/28 16:47:42 yasuoka Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -476,6 +476,7 @@ union pf_rule_ptr {
 
 #define	PF_ANCHOR_NAME_SIZE	 64
 #define	PF_ANCHOR_MAXPATH	(MAXPATHLEN - PF_ANCHOR_NAME_SIZE - 1)
+#define	PF_OPTIMIZER_TABLE_PFX	"__automatic_"
 
 struct pf_rule {
 	struct pf_rule_addr	 src;
@@ -1844,6 +1845,8 @@ int	pfr_ina_rollback(struct pfr_table *, u_int32_t, int *, int);
 int	pfr_ina_commit(struct pfr_table *, u_int32_t, int *, int *, int);
 int	pfr_ina_define(struct pfr_table *, struct pfr_addr *, int, int *,
 	    int *, u_int32_t, int);
+struct pfr_ktable
+	*pfr_ktable_select_active(struct pfr_ktable *);
 
 extern struct pfi_kif		*pfi_all;
 

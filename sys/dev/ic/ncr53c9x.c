@@ -1,4 +1,4 @@
-/*	$OpenBSD: ncr53c9x.c,v 1.72 2020/06/27 17:28:58 krw Exp $	*/
+/*	$OpenBSD: ncr53c9x.c,v 1.76 2020/07/20 14:41:13 krw Exp $	*/
 /*     $NetBSD: ncr53c9x.c,v 1.56 2000/11/30 14:41:46 thorpej Exp $    */
 
 /*
@@ -261,21 +261,16 @@ ncr53c9x_attach(sc)
 	sc->sc_state = 0;
 	ncr53c9x_init(sc, 1);
 
-	/*
-	 * fill in the prototype scsi_link.
-	 */
-	sc->sc_link.adapter_softc = sc;
-	sc->sc_link.adapter_target = sc->sc_id;
-	sc->sc_link.adapter = &ncr53c9x_switch;
-	sc->sc_link.openings = 2;
-	sc->sc_link.adapter_buswidth = sc->sc_ntarg;
-	sc->sc_link.pool = &ecb_iopool;
+	saa.saa_adapter_softc = sc;
+	saa.saa_adapter_target = sc->sc_id;
+	saa.saa_adapter = &ncr53c9x_switch;
+	saa.saa_adapter_buswidth = sc->sc_ntarg;
+	saa.saa_luns = 8;
+	saa.saa_openings = 2;
+	saa.saa_pool = &ecb_iopool;
+	saa.saa_quirks = saa.saa_flags = 0;
+	saa.saa_wwpn = saa.saa_wwnn = 0;
 
-	saa.saa_sc_link = &sc->sc_link;
-
-	/*
-	 * Now try to attach all the sub-devices
-	 */
 	config_found(&sc->sc_dev, &saa, scsiprint);
 }
 
@@ -775,7 +770,7 @@ ncr53c9x_free_ecb(void *null, void *ecb)
 int
 ncr53c9x_scsi_probe(struct scsi_link *sc_link)
 {
-	struct ncr53c9x_softc *sc = sc_link->adapter_softc;
+	struct ncr53c9x_softc *sc = sc_link->bus->sb_adapter_softc;
 	struct ncr53c9x_tinfo *ti = &sc->sc_tinfo[sc_link->target];
 	struct ncr53c9x_linfo *li;
 	int64_t lun = sc_link->lun;
@@ -802,7 +797,7 @@ ncr53c9x_scsi_probe(struct scsi_link *sc_link)
 void
 ncr53c9x_scsi_free(struct scsi_link *sc_link)
 {
-	struct ncr53c9x_softc *sc = sc_link->adapter_softc;
+	struct ncr53c9x_softc *sc = sc_link->bus->sb_adapter_softc;
 	struct ncr53c9x_tinfo *ti = &sc->sc_tinfo[sc_link->target];
 	struct ncr53c9x_linfo *li;
 	int64_t lun = sc_link->lun;
@@ -829,7 +824,7 @@ ncr53c9x_scsi_cmd(xs)
 	struct scsi_xfer *xs;
 {
 	struct scsi_link *sc_link = xs->sc_link;
-	struct ncr53c9x_softc *sc = sc_link->adapter_softc;
+	struct ncr53c9x_softc *sc = sc_link->bus->sb_adapter_softc;
 	struct ncr53c9x_ecb *ecb;
 	struct ncr53c9x_tinfo *ti;
 	struct ncr53c9x_linfo *li;
@@ -2770,7 +2765,7 @@ ncr53c9x_timeout(arg)
 	struct ncr53c9x_ecb *ecb = arg;
 	struct scsi_xfer *xs = ecb->xs;
 	struct scsi_link *sc_link = xs->sc_link;
-	struct ncr53c9x_softc *sc = sc_link->adapter_softc;
+	struct ncr53c9x_softc *sc = sc_link->bus->sb_adapter_softc;
 	struct ncr53c9x_tinfo *ti = &sc->sc_tinfo[sc_link->target];
 	int s;
 

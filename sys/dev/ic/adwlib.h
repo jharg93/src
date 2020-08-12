@@ -1,4 +1,4 @@
-/*	$OpenBSD: adwlib.h,v 1.15 2020/02/18 20:24:52 krw Exp $ */
+/*	$OpenBSD: adwlib.h,v 1.17 2020/08/08 12:40:55 krw Exp $ */
 /*      $NetBSD: adwlib.h,v 1.14 2000/07/03 18:14:18 dante Exp $        */
 
 /*
@@ -521,10 +521,10 @@ typedef struct adw_eeprom
        x means don't-care (either '0' or '1')
 
        If term_pol (bit 13) is '0' (active-low terminator enable), then:
-           'on' is '0' and 'off' is '1'.
+       'on' is '0' and 'off' is '1'.
 
-	   If term_pol bit is '1' (meaning active-hi terminator enable), then:
-           'on' is '1' and 'off' is '0'.
+       If term_pol bit is '1' (meaning active-hi terminator enable), then:
+       'on' is '1' and 'off' is '0'.
 */
 
 /*
@@ -744,7 +744,6 @@ typedef struct adw_softc {
 	struct adw_ccb		*sc_ccbhash[CCB_HASH_SIZE];
 	TAILQ_HEAD(, adw_ccb)	sc_free_ccb, sc_waiting_ccb;
 	TAILQ_HEAD(adw_pending_ccb, adw_ccb)	sc_pending_ccb;
-	struct scsi_link	sc_link;     /* prototype for devs */
 	struct mutex		sc_ccb_mtx;
 	struct scsi_iopool	sc_iopool;
 
@@ -1060,14 +1059,14 @@ typedef struct {
 	u_int8_t	aenc	 : 1;	     	/* asynch. event notification (processor) */
 	u_int8_t	add_len;		/* additional length */
 	u_int8_t	res2     : 7;		/* reserved */
-        u_int8_t        SCC      : 1;
-        u_int8_t        Addr16   : 1;
+	u_int8_t        SCC      : 1;
+	u_int8_t        Addr16   : 1;
 	u_int8_t	res3     : 2;		/* reserved */
 	u_int8_t        MChngr   : 1;
-        u_int8_t        MultiPort: 1;
-        u_int8_t        res4     : 1;
+	u_int8_t        MultiPort: 1;
+	u_int8_t        res4     : 1;
 	u_int8_t        EncServ  : 1;
-        u_int8_t        BaseQue  : 1;
+	u_int8_t        BaseQue  : 1;
 	u_int8_t	StfRe	 : 1;	    	/* soft reset implemented */
 	u_int8_t	CmdQue   : 1;	    	/* command queuing */
 	u_int8_t	res5	 : 1;	    	/* reserved */

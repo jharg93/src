@@ -1,4 +1,4 @@
-/*	$OpenBSD: gdt_common.c,v 1.72 2020/07/02 15:58:17 krw Exp $	*/
+/*	$OpenBSD: gdt_common.c,v 1.77 2020/07/24 12:43:31 krw Exp $	*/
 
 /*
  * Copyright (c) 1999, 2000, 2003 Niklas Hallqvist.  All rights reserved.
@@ -461,20 +461,20 @@ gdt_attach(struct gdt_softc *sc)
 #endif
 	gdt_cnt++;
 
-	/* Fill in the prototype scsi_link. */
-	if (sc->sc_ndevs == 0)
-		sc->sc_link.openings = 0;
-	else
-		sc->sc_link.openings = (GDT_MAXCMDS - GDT_CMD_RESERVE) /
-		    sc->sc_ndevs;
-	sc->sc_link.adapter_softc = sc;
-	sc->sc_link.adapter = &gdt_switch;
-	sc->sc_link.adapter_buswidth =
+	saa.saa_adapter_softc = sc;
+	saa.saa_adapter = &gdt_switch;
+	saa.saa_adapter_buswidth =
 	    (sc->sc_class & GDT_FC) ? GDT_MAXID : GDT_MAX_HDRIVES;
-	sc->sc_link.adapter_target = SDEV_NO_ADAPTER_TARGET;
-	sc->sc_link.pool = &sc->sc_iopool;
-
-	saa.saa_sc_link = &sc->sc_link;
+	saa.saa_adapter_target = SDEV_NO_ADAPTER_TARGET;
+	saa.saa_luns = 8;
+	if (sc->sc_ndevs == 0)
+		saa.saa_openings = 0;
+	else
+		saa.saa_openings = (GDT_MAXCMDS - GDT_CMD_RESERVE) /
+		    sc->sc_ndevs;
+	saa.saa_pool = &sc->sc_iopool;
+	saa.saa_quirks = saa.saa_flags = 0;
+	saa.saa_wwpn = saa.saa_wwnn = 0;
 
 	config_found(&sc->sc_dev, &saa, scsiprint);
 
@@ -541,7 +541,7 @@ void
 gdt_scsi_cmd(struct scsi_xfer *xs)
 {
 	struct scsi_link *link = xs->sc_link;
-	struct gdt_softc *sc = link->adapter_softc;
+	struct gdt_softc *sc = link->bus->sb_adapter_softc;
 	u_int8_t target = link->target;
 	struct gdt_ccb *ccb;
 	u_int32_t blockno, blockcnt;
@@ -735,7 +735,7 @@ gdt_exec_ccb(struct gdt_ccb *ccb)
 {
 	struct scsi_xfer *xs = ccb->gc_xs;
 	struct scsi_link *link = xs->sc_link;
-	struct gdt_softc *sc = link->adapter_softc;
+	struct gdt_softc *sc = link->bus->sb_adapter_softc;
 	u_int8_t target = link->target;
 	u_int32_t sg_canz;
 	bus_dmamap_t xfer;
@@ -811,7 +811,7 @@ gdt_exec_ccb(struct gdt_ccb *ccb)
 				    GDT_SG_LEN,
 				    xfer->dm_segs[i].ds_len);
 				GDT_DPRINTF(GDT_D_IO,
-				    ("#%d va %p pa %p len %x\n", i, buf,
+				    ("#%d pa %lx len %lx\n", i,
 				    xfer->dm_segs[i].ds_addr,
 				    xfer->dm_segs[i].ds_len));
 			}
@@ -875,7 +875,7 @@ void
 gdt_internal_cache_cmd(struct scsi_xfer *xs)
 {
 	struct scsi_link *link = xs->sc_link;
-	struct gdt_softc *sc = link->adapter_softc;
+	struct gdt_softc *sc = link->bus->sb_adapter_softc;
 	struct scsi_inquiry_data inq;
 	struct scsi_sense_data sd;
 	struct scsi_read_cap_data rcd;
@@ -1290,7 +1290,7 @@ gdt_timeout(void *arg)
 {
 	struct gdt_ccb *ccb = arg;
 	struct scsi_link *link = ccb->gc_xs->sc_link;
-	struct gdt_softc *sc = link->adapter_softc;
+	struct gdt_softc *sc = link->bus->sb_adapter_softc;
 	int s;
 
 	sc_print_addr(link);
@@ -1309,7 +1309,7 @@ gdt_watchdog(void *arg)
 {
 	struct gdt_ccb *ccb = arg;
 	struct scsi_link *link = ccb->gc_xs->sc_link;
-	struct gdt_softc *sc = link->adapter_softc;
+	struct gdt_softc *sc = link->bus->sb_adapter_softc;
 	int s;
 
 	s = splbio();

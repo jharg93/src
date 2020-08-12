@@ -50,6 +50,13 @@
 #define  CTL_COMWAITINTEN	(1L << 4)
 #define  CTL_INVTIMEOUT_SHIFT 	5
 #define  CTL_INVTIMEOUT_MASK  	0x7
+#define  CTL_INVTIMEOUT_NONE	0
+#define  CTL_INVTIMEOUT_1MS     1
+#define  CTL_INVTIMEOUT_10MS    2
+#define  CTL_INVTIMEOUT_100MS   3
+#define  CTL_INVTIMEOUT_1S      4
+#define  CTL_INVTIMEOUT_10S     5
+#define  CTL_INVTIMEOUT_100S    6
 #define  CTL_PASSPW		(1L << 8)
 #define  CTL_RESPASSPW		(1L << 9)
 #define  CTL_COHERENT		(1L << 10)

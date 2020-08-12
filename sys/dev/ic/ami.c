@@ -1,4 +1,4 @@
-/*	$OpenBSD: ami.c,v 1.245 2020/07/02 15:58:17 krw Exp $	*/
+/*	$OpenBSD: ami.c,v 1.254 2020/07/24 12:43:31 krw Exp $	*/
 
 /*
  * Copyright (c) 2001 Michael Shalayeff
@@ -210,14 +210,14 @@ ami_read(struct ami_softc *sc, bus_size_t r)
 	    BUS_SPACE_BARRIER_READ);
 	rv = bus_space_read_4(sc->sc_iot, sc->sc_ioh, r);
 
-	AMI_DPRINTF(AMI_D_CMD, ("ari 0x%x 0x08%x ", r, rv));
+	AMI_DPRINTF(AMI_D_CMD, ("ari 0x%lx 0x08%x ", r, rv));
 	return (rv);
 }
 
 void
 ami_write(struct ami_softc *sc, bus_size_t r, u_int32_t v)
 {
-	AMI_DPRINTF(AMI_D_CMD, ("awo 0x%x 0x%08x ", r, v));
+	AMI_DPRINTF(AMI_D_CMD, ("awo 0x%lx 0x%08x ", r, v));
 
 	bus_space_write_4(sc->sc_iot, sc->sc_ioh, r, v);
 	bus_space_barrier(sc->sc_iot, sc->sc_ioh, r, 4,
@@ -477,7 +477,6 @@ ami_attach(struct ami_softc *sc)
 	}
 
 	if (sc->sc_flags & AMI_BROKEN) {
-		sc->sc_link.openings = 1;
 		sc->sc_maxcmds = 1;
 		sc->sc_maxunits = 1;
 	} else {
@@ -491,8 +490,6 @@ ami_attach(struct ami_softc *sc)
 		 */
 		sc->sc_maxcmds -= AMI_MAXIOCTLCMDS + AMI_MAXPROCS *
 		    AMI_MAXRAWCMDS * sc->sc_channels;
-
-		sc->sc_link.openings = sc->sc_maxcmds;
 	}
 
 	if (ami_alloc_ccbs(sc, AMI_MAXCMDS + 1) != 0) {
@@ -520,10 +517,10 @@ ami_attach(struct ami_softc *sc)
 #ifdef AMI_DEBUG
 	printf(", FW %s, BIOS v%s, %dMB RAM\n"
 	    "%s: %d channels, %d %ss, %d logical drives, "
-	    "openings %d, max commands %d, quirks: %04x\n",
+	    "max commands %d, quirks: %04x\n",
 	    sc->sc_fwver, sc->sc_biosver, sc->sc_memory, DEVNAME(sc),
 	    sc->sc_channels, sc->sc_targets, p, sc->sc_nunits,
-	    sc->sc_link.openings, sc->sc_maxcmds, sc->sc_flags);
+	    sc->sc_maxcmds, sc->sc_flags);
 #else
 	printf(", FW %s, BIOS v%s, %dMB RAM\n"
 	    "%s: %d channels, %d %ss, %d logical drives\n",
@@ -538,15 +535,18 @@ ami_attach(struct ami_softc *sc)
 	/* lock around ioctl requests */
 	rw_init(&sc->sc_lock, NULL);
 
-	sc->sc_link.adapter_softc = sc;
-	sc->sc_link.adapter = &ami_switch;
-	sc->sc_link.adapter_target = SDEV_NO_ADAPTER_TARGET;
-	sc->sc_link.adapter_buswidth = sc->sc_maxunits;
-	sc->sc_link.pool = &sc->sc_iopool;
+	saa.saa_adapter_softc = sc;
+	saa.saa_adapter = &ami_switch;
+	saa.saa_adapter_target = SDEV_NO_ADAPTER_TARGET;
+	saa.saa_adapter_buswidth = sc->sc_maxunits;
+	saa.saa_luns = 8;
+	saa.saa_openings = sc->sc_maxcmds;
+	saa.saa_pool = &sc->sc_iopool;
+	saa.saa_quirks = saa.saa_flags = 0;
+	saa.saa_wwpn = saa.saa_wwnn = 0;
 
-	saa.saa_sc_link = &sc->sc_link;
-
-	config_found(&sc->sc_dev, &saa, scsiprint);
+	sc->sc_scsibus = (struct scsibus_softc *)config_found(&sc->sc_dev, &saa,
+	    scsiprint);
 
 	/* can't do bioctls, sensors, or pass-through on broken devices */
 	if (sc->sc_flags & AMI_BROKEN)
@@ -580,16 +580,19 @@ ami_attach(struct ami_softc *sc)
 
 		rsc->sc_softc = sc;
 		rsc->sc_channel = rsc - sc->sc_rawsoftcs;
-		rsc->sc_link.openings = sc->sc_maxcmds;
-		rsc->sc_link.adapter_softc = rsc;
-		rsc->sc_link.adapter = &ami_raw_switch;
 		rsc->sc_proctarget = -1;
-		/* TODO fetch it from the controller */
-		rsc->sc_link.adapter_target = SDEV_NO_ADAPTER_TARGET;
-		rsc->sc_link.adapter_buswidth = 16;
-		rsc->sc_link.pool = &sc->sc_iopool;
 
-		saa.saa_sc_link = &rsc->sc_link;
+		/* TODO fetch adapter_target from the controller */
+
+		saa.saa_adapter_softc = rsc;
+		saa.saa_adapter = &ami_raw_switch;
+		saa.saa_adapter_target = SDEV_NO_ADAPTER_TARGET;
+		saa.saa_adapter_buswidth = 16;
+		saa.saa_luns = 8;
+		saa.saa_openings = sc->sc_maxcmds;
+		saa.saa_pool = &sc->sc_iopool;
+		saa.saa_quirks = saa.saa_flags = 0;
+		saa.saa_wwpn = saa.saa_wwnn = 0;
 
 		ptbus = (struct scsibus_softc *)config_found(&sc->sc_dev,
 		    &saa, scsiprint);
@@ -1077,7 +1080,7 @@ ami_done_pt(struct ami_softc *sc, struct ami_ccb *ccb)
 {
 	struct scsi_xfer *xs = ccb->ccb_xs;
 	struct scsi_link *link = xs->sc_link;
-	struct ami_rawsoftc *rsc = link->adapter_softc;
+	struct ami_rawsoftc *rsc = link->bus->sb_adapter_softc;
 	u_int8_t target = link->target, type;
 
 	bus_dmamap_sync(sc->sc_dmat, AMIMEM_MAP(sc->sc_ccbmem_am),
@@ -1206,7 +1209,7 @@ void
 ami_scsi_raw_cmd(struct scsi_xfer *xs)
 {
 	struct scsi_link *link = xs->sc_link;
-	struct ami_rawsoftc *rsc = link->adapter_softc;
+	struct ami_rawsoftc *rsc = link->bus->sb_adapter_softc;
 	struct ami_softc *sc = rsc->sc_softc;
 	u_int8_t channel = rsc->sc_channel, target = link->target;
 	struct ami_ccb *ccb;
@@ -1307,7 +1310,7 @@ void
 ami_scsi_cmd(struct scsi_xfer *xs)
 {
 	struct scsi_link *link = xs->sc_link;
-	struct ami_softc *sc = link->adapter_softc;
+	struct ami_softc *sc = link->bus->sb_adapter_softc;
 	struct device *dev = link->device_softc;
 	struct ami_ccb *ccb;
 	struct ami_iocmd *cmd;
@@ -1546,12 +1549,12 @@ ami_intr(void *v)
 int
 ami_scsi_ioctl(struct scsi_link *link, u_long cmd, caddr_t addr, int flag)
 {
-	struct ami_softc *sc = (struct ami_softc *)link->adapter_softc;
+	struct ami_softc *sc = link->bus->sb_adapter_softc;
 	/* struct device *dev = (struct device *)link->device_softc; */
 	/* u_int8_t target = link->target; */
 
 	if (sc->sc_ioctl)
-		return (sc->sc_ioctl(link->adapter_softc, cmd, addr));
+		return (sc->sc_ioctl(&sc->sc_dev, cmd, addr));
 	else
 		return (ENOTTY);
 }
@@ -2392,7 +2395,7 @@ ami_create_sensors(struct ami_softc *sc)
 
 		/* check if this is the scsibus for the logical disks */
 		ssc = (struct scsibus_softc *)dev;
-		if (ssc->adapter_link == &sc->sc_link)
+		if (ssc == sc->sc_scsibus)
 			break;
 	}
 

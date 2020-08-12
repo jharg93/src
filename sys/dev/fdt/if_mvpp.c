@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_mvpp.c,v 1.7 2020/06/26 21:02:36 patrick Exp $	*/
+/*	$OpenBSD: if_mvpp.c,v 1.16 2020/07/23 10:10:15 patrick Exp $	*/
 /*
  * Copyright (c) 2008, 2019 Mark Kettenis <kettenis@openbsd.org>
  * Copyright (c) 2017, 2020 Patrick Wildt <patrick@blueri.se>
@@ -62,11 +62,15 @@
 #include <sys/sockio.h>
 #include <sys/timeout.h>
 
+#include <uvm/uvm_extern.h>
+
+#include <machine/cpufunc.h>
 #include <machine/bus.h>
 #include <machine/fdt.h>
 
 #include <net/if.h>
 #include <net/if_media.h>
+#include <net/ppp_defs.h>
 
 #include <dev/ofw/openfirm.h>
 #include <dev/ofw/ofw_clock.h>
@@ -157,9 +161,11 @@ struct mvpp2_softc {
 	bus_space_tag_t		sc_iot;
 	bus_space_handle_t	sc_ioh_base;
 	bus_space_handle_t	sc_ioh_iface;
+	paddr_t			sc_ioh_paddr;
 	bus_size_t		sc_iosize_base;
 	bus_size_t		sc_iosize_iface;
 	bus_dma_tag_t		sc_dmat;
+	struct regmap		*sc_rm;
 
 	uint32_t		sc_tclk;
 
@@ -304,6 +310,8 @@ void	mvpp2_rxq_short_pool_set(struct mvpp2_port *, int, int);
 void	mvpp2_mac_config(struct mvpp2_port *);
 void	mvpp2_xlg_config(struct mvpp2_port *);
 void	mvpp2_gmac_config(struct mvpp2_port *);
+void	mvpp2_comphy_config(struct mvpp2_port *);
+void	mvpp2_gop_config(struct mvpp2_port *);
 
 struct mvpp2_dmamem *
 	mvpp2_dmamem_alloc(struct mvpp2_softc *, bus_size_t, bus_size_t);
@@ -378,8 +386,8 @@ void	mvpp2_prs_sram_offset_set(struct mvpp2_prs_entry *, uint32_t, int,
 void	mvpp2_prs_sram_next_lu_set(struct mvpp2_prs_entry *, uint32_t);
 void	mvpp2_prs_shadow_set(struct mvpp2_softc *, int, uint32_t);
 int	mvpp2_prs_hw_write(struct mvpp2_softc *, struct mvpp2_prs_entry *);
-int	mvpp2_prs_hw_read(struct mvpp2_softc *, struct mvpp2_prs_entry *);
-struct mvpp2_prs_entry *mvpp2_prs_flow_find(struct mvpp2_softc *, int);
+int	mvpp2_prs_hw_read(struct mvpp2_softc *, struct mvpp2_prs_entry *, int);
+int	mvpp2_prs_flow_find(struct mvpp2_softc *, int);
 int	mvpp2_prs_tcam_first_free(struct mvpp2_softc *, uint8_t, uint8_t);
 void	mvpp2_prs_mac_drop_all_set(struct mvpp2_softc *, uint32_t, int);
 void	mvpp2_prs_mac_promisc_set(struct mvpp2_softc *, uint32_t, int);
@@ -442,6 +450,14 @@ mvpp2_attach(struct device *parent, struct device *self, void *aux)
 	}
 	sc->sc_iosize_base = faa->fa_reg[0].size;
 
+	if (!pmap_extract(pmap_kernel(), (vaddr_t)sc->sc_ioh_base,
+	    &sc->sc_ioh_paddr)) {
+		printf(": can't extract address\n");
+		bus_space_unmap(sc->sc_iot, sc->sc_ioh_base,
+		    sc->sc_iosize_base);
+		return;
+	}
+
 	if (bus_space_map(sc->sc_iot, faa->fa_reg[1].addr,
 	    faa->fa_reg[1].size, 0, &sc->sc_ioh_iface)) {
 		printf(": can't map registers\n");
@@ -450,6 +466,9 @@ mvpp2_attach(struct device *parent, struct device *self, void *aux)
 		return;
 	}
 	sc->sc_iosize_iface = faa->fa_reg[1].size;
+
+	sc->sc_rm = regmap_byphandle(OF_getpropint(faa->fa_node,
+	    "marvell,system-controller", 0));
 
 	clock_enable_all(faa->fa_node);
 	sc->sc_tclk = clock_get_frequency(faa->fa_node, "pp_clk");
@@ -834,7 +853,7 @@ mvpp2_prs_etype_init(struct mvpp2_softc *sc)
 	memset(&pe, 0, sizeof(pe));
 	mvpp2_prs_tcam_lu_set(&pe, MVPP2_PRS_LU_L2);
 	pe.index = tid;
-	mvpp2_prs_match_etype(&pe, 0, MV_ETH_P_PPP_SES);
+	mvpp2_prs_match_etype(&pe, 0, ETHERTYPE_PPPOE);
 	mvpp2_prs_sram_shift_set(&pe, MVPP2_PPPOE_HDR_SIZE,
 	    MVPP2_PRS_SRAM_OP_SEL_SHIFT_ADD);
 	mvpp2_prs_sram_next_lu_set(&pe, MVPP2_PRS_LU_PPPOE);
@@ -855,7 +874,7 @@ mvpp2_prs_etype_init(struct mvpp2_softc *sc)
 	memset(&pe, 0, sizeof(pe));
 	mvpp2_prs_tcam_lu_set(&pe, MVPP2_PRS_LU_L2);
 	pe.index = tid;
-	mvpp2_prs_match_etype(&pe, 0, MV_ETH_P_ARP);
+	mvpp2_prs_match_etype(&pe, 0, ETHERTYPE_ARP);
 	mvpp2_prs_sram_next_lu_set(&pe, MVPP2_PRS_LU_FLOWS);
 	mvpp2_prs_sram_bits_set(&pe, MVPP2_PRS_SRAM_LU_GEN_BIT, 1);
 	mvpp2_prs_sram_ri_update(&pe, MVPP2_PRS_RI_L3_ARP,
@@ -901,7 +920,7 @@ mvpp2_prs_etype_init(struct mvpp2_softc *sc)
 	memset(&pe, 0, sizeof(pe));
 	mvpp2_prs_tcam_lu_set(&pe, MVPP2_PRS_LU_L2);
 	pe.index = tid;
-	mvpp2_prs_match_etype(&pe, 0, MV_ETH_P_IP);
+	mvpp2_prs_match_etype(&pe, 0, ETHERTYPE_IP);
 	mvpp2_prs_tcam_data_byte_set(&pe, MVPP2_ETH_TYPE_LEN,
 	    MVPP2_PRS_IPV4_HEAD | MVPP2_PRS_IPV4_IHL,
 	    MVPP2_PRS_IPV4_HEAD_MASK | MVPP2_PRS_IPV4_IHL_MASK);
@@ -949,7 +968,7 @@ mvpp2_prs_etype_init(struct mvpp2_softc *sc)
 	memset(&pe, 0, sizeof(pe));
 	mvpp2_prs_tcam_lu_set(&pe, MVPP2_PRS_LU_L2);
 	pe.index = tid;
-	mvpp2_prs_match_etype(&pe, 0, MV_ETH_P_IPV6);
+	mvpp2_prs_match_etype(&pe, 0, ETHERTYPE_IPV6);
 	mvpp2_prs_sram_shift_set(&pe, MVPP2_ETH_TYPE_LEN + 8 +
 	    MVPP2_MAX_L3_ADDR_SIZE, MVPP2_PRS_SRAM_OP_SEL_SHIFT_ADD);
 	mvpp2_prs_sram_next_lu_set(&pe, MVPP2_PRS_LU_IP6);
@@ -994,19 +1013,19 @@ mvpp2_prs_vlan_init(struct mvpp2_softc *sc)
 	sc->sc_prs_double_vlans = mallocarray(MVPP2_PRS_DBL_VLANS_MAX,
 	    sizeof(*sc->sc_prs_double_vlans), M_DEVBUF, M_WAITOK | M_ZERO);
 
-	ret = mvpp2_prs_double_vlan_add(sc, MV_ETH_P_8021Q, MV_ETH_P_8021AD,
+	ret = mvpp2_prs_double_vlan_add(sc, ETHERTYPE_VLAN, ETHERTYPE_QINQ,
 	    MVPP2_PRS_PORT_MASK);
 	if (ret)
 		return ret;
-	ret = mvpp2_prs_double_vlan_add(sc, MV_ETH_P_8021Q, MV_ETH_P_8021Q,
+	ret = mvpp2_prs_double_vlan_add(sc, ETHERTYPE_VLAN, ETHERTYPE_VLAN,
 	    MVPP2_PRS_PORT_MASK);
 	if (ret)
 		return ret;
-	ret = mvpp2_prs_vlan_add(sc, MV_ETH_P_8021AD, MVPP2_PRS_SINGLE_VLAN_AI,
+	ret = mvpp2_prs_vlan_add(sc, ETHERTYPE_QINQ, MVPP2_PRS_SINGLE_VLAN_AI,
 	    MVPP2_PRS_PORT_MASK);
 	if (ret)
 		return ret;
-	ret = mvpp2_prs_vlan_add(sc, MV_ETH_P_8021Q, MVPP2_PRS_SINGLE_VLAN_AI,
+	ret = mvpp2_prs_vlan_add(sc, ETHERTYPE_VLAN, MVPP2_PRS_SINGLE_VLAN_AI,
 	    MVPP2_PRS_PORT_MASK);
 	if (ret)
 		return ret;
@@ -1050,7 +1069,7 @@ mvpp2_prs_pppoe_init(struct mvpp2_softc *sc)
 	memset(&pe, 0, sizeof(struct mvpp2_prs_entry));
 	mvpp2_prs_tcam_lu_set(&pe, MVPP2_PRS_LU_PPPOE);
 	pe.index = tid;
-	mvpp2_prs_match_etype(&pe, 0, MV_PPP_IP);
+	mvpp2_prs_match_etype(&pe, 0, PPP_IP);
 	mvpp2_prs_sram_next_lu_set(&pe, MVPP2_PRS_LU_IP4);
 	mvpp2_prs_sram_ri_update(&pe, MVPP2_PRS_RI_L3_IP4_OPT,
 	    MVPP2_PRS_RI_L3_PROTO_MASK);
@@ -1084,7 +1103,7 @@ mvpp2_prs_pppoe_init(struct mvpp2_softc *sc)
 	memset(&pe, 0, sizeof(struct mvpp2_prs_entry));
 	mvpp2_prs_tcam_lu_set(&pe, MVPP2_PRS_LU_PPPOE);
 	pe.index = tid;
-	mvpp2_prs_match_etype(&pe, 0, MV_PPP_IPV6);
+	mvpp2_prs_match_etype(&pe, 0, PPP_IPV6);
 	mvpp2_prs_sram_next_lu_set(&pe, MVPP2_PRS_LU_IP6);
 	mvpp2_prs_sram_ri_update(&pe, MVPP2_PRS_RI_L3_IP6,
 	    MVPP2_PRS_RI_L3_PROTO_MASK);
@@ -1121,20 +1140,20 @@ mvpp2_prs_ip6_init(struct mvpp2_softc *sc)
 	struct mvpp2_prs_entry pe;
 	int tid, ret;
 
-	ret = mvpp2_prs_ip6_proto(sc, MV_IPPR_TCP, MVPP2_PRS_RI_L4_TCP,
+	ret = mvpp2_prs_ip6_proto(sc, IPPROTO_TCP, MVPP2_PRS_RI_L4_TCP,
 	    MVPP2_PRS_RI_L4_PROTO_MASK);
 	if (ret)
 		return ret;
-	ret = mvpp2_prs_ip6_proto(sc, MV_IPPR_UDP, MVPP2_PRS_RI_L4_UDP,
+	ret = mvpp2_prs_ip6_proto(sc, IPPROTO_UDP, MVPP2_PRS_RI_L4_UDP,
 	    MVPP2_PRS_RI_L4_PROTO_MASK);
 	if (ret)
 		return ret;
-	ret = mvpp2_prs_ip6_proto(sc, MV_IPPR_ICMPV6,
+	ret = mvpp2_prs_ip6_proto(sc, IPPROTO_ICMPV6,
 	    MVPP2_PRS_RI_CPU_CODE_RX_SPEC | MVPP2_PRS_RI_UDF3_RX_SPECIAL,
 	    MVPP2_PRS_RI_CPU_CODE_MASK | MVPP2_PRS_RI_UDF3_MASK);
 	if (ret)
 		return ret;
-	ret = mvpp2_prs_ip6_proto(sc, MV_IPPR_IPIP, MVPP2_PRS_RI_UDF7_IP6_LITE,
+	ret = mvpp2_prs_ip6_proto(sc, IPPROTO_IPIP, MVPP2_PRS_RI_UDF7_IP6_LITE,
 	    MVPP2_PRS_RI_UDF7_MASK);
 	if (ret)
 		return ret;
@@ -1212,15 +1231,15 @@ mvpp2_prs_ip4_init(struct mvpp2_softc *sc)
 	struct mvpp2_prs_entry pe;
 	int ret;
 
-	ret = mvpp2_prs_ip4_proto(sc, MV_IPPR_TCP, MVPP2_PRS_RI_L4_TCP,
-			MVPP2_PRS_RI_L4_PROTO_MASK);
+	ret = mvpp2_prs_ip4_proto(sc, IPPROTO_TCP, MVPP2_PRS_RI_L4_TCP,
+	    MVPP2_PRS_RI_L4_PROTO_MASK);
 	if (ret)
 		return ret;
-	ret = mvpp2_prs_ip4_proto(sc, MV_IPPR_UDP, MVPP2_PRS_RI_L4_UDP,
-			MVPP2_PRS_RI_L4_PROTO_MASK);
+	ret = mvpp2_prs_ip4_proto(sc, IPPROTO_UDP, MVPP2_PRS_RI_L4_UDP,
+	    MVPP2_PRS_RI_L4_PROTO_MASK);
 	if (ret)
 		return ret;
-	ret = mvpp2_prs_ip4_proto(sc, MV_IPPR_IGMP,
+	ret = mvpp2_prs_ip4_proto(sc, IPPROTO_IGMP,
 	    MVPP2_PRS_RI_CPU_CODE_RX_SPEC | MVPP2_PRS_RI_UDF3_RX_SPECIAL,
 	    MVPP2_PRS_RI_CPU_CODE_MASK | MVPP2_PRS_RI_UDF3_MASK);
 	if (ret)
@@ -1237,7 +1256,7 @@ mvpp2_prs_ip4_init(struct mvpp2_softc *sc)
 	pe.index = MVPP2_PE_IP4_PROTO_UN;
 	mvpp2_prs_sram_next_lu_set(&pe, MVPP2_PRS_LU_IP4);
 	mvpp2_prs_sram_shift_set(&pe, 12, MVPP2_PRS_SRAM_OP_SEL_SHIFT_ADD);
-	mvpp2_prs_sram_offset_set( &pe, MVPP2_PRS_SRAM_UDF_TYPE_L4,
+	mvpp2_prs_sram_offset_set(&pe, MVPP2_PRS_SRAM_UDF_TYPE_L4,
 	    sizeof(struct ip) - 4, MVPP2_PRS_SRAM_OP_SEL_UDF_ADD);
 	mvpp2_prs_sram_ai_update(&pe, MVPP2_PRS_IPV4_DIP_AI_BIT,
 	    MVPP2_PRS_IPV4_DIP_AI_BIT);
@@ -1412,17 +1431,15 @@ mvpp2_port_attach(struct device *parent, struct device *self, void *aux)
 		mvpp2_xlg_write(sc, MV_XLG_PORT_MAC_CTRL0_REG,
 		    mvpp2_xlg_read(sc, MV_XLG_PORT_MAC_CTRL0_REG) &
 		    ~MV_XLG_MAC_CTRL0_MACRESETN_MASK);
-		if (sc->sc_phy_mode == PHY_MODE_10GBASER) {
-			reg = mvpp2_mpcs_read(sc, MVPP22_MPCS_CLOCK_RESET);
-			reg |= MVPP22_MPCS_CLK_DIV_PHASE_SET_MASK;
-			reg &= ~MVPP22_MPCS_TX_SD_CLK_RESET_MASK;
-			reg &= ~MVPP22_MPCS_RX_SD_CLK_RESET_MASK;
-			reg &= ~MVPP22_MPCS_MAC_CLK_RESET_MASK;
-			mvpp2_mpcs_write(sc, MVPP22_MPCS_CLOCK_RESET, reg);
-		} else if (sc->sc_phy_mode == PHY_MODE_XAUI)
-			mvpp2_xpcs_write(sc, MVPP22_XPCS_GLOBAL_CFG_0_REG,
-			    mvpp2_xpcs_read(sc, MVPP22_XPCS_GLOBAL_CFG_0_REG) &
-			    ~MVPP22_XPCS_PCSRESET);
+		reg = mvpp2_mpcs_read(sc, MVPP22_MPCS_CLOCK_RESET);
+		reg |= MVPP22_MPCS_CLK_DIV_PHASE_SET_MASK;
+		reg &= ~MVPP22_MPCS_TX_SD_CLK_RESET_MASK;
+		reg &= ~MVPP22_MPCS_RX_SD_CLK_RESET_MASK;
+		reg &= ~MVPP22_MPCS_MAC_CLK_RESET_MASK;
+		mvpp2_mpcs_write(sc, MVPP22_MPCS_CLOCK_RESET, reg);
+		reg = mvpp2_xpcs_read(sc, MVPP22_XPCS_GLOBAL_CFG_0_REG);
+		reg &= ~MVPP22_XPCS_PCSRESET;
+		mvpp2_xpcs_write(sc, MVPP22_XPCS_GLOBAL_CFG_0_REG, reg);
 	}
 
 	timeout_set(&sc->sc_tick, mvpp2_tick, sc);
@@ -1433,7 +1450,7 @@ mvpp2_port_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_ioctl = mvpp2_ioctl;
 	ifp->if_start = mvpp2_start;
 	ifp->if_watchdog = mvpp2_watchdog;
-	IFQ_SET_MAXLEN(&ifp->if_snd, MVPP2_NTXDESC - 1);
+	ifq_set_maxlen(&ifp->if_snd, MVPP2_NTXDESC - 1);
 	bcopy(sc->sc_dev.dv_xname, ifp->if_xname, IFNAMSIZ);
 
 	ifp->if_capabilities = IFCAP_VLAN_MTU;
@@ -1600,7 +1617,7 @@ mvpp2_start(struct ifnet *ifp)
 		return;
 	if (ifq_is_oactive(&ifp->if_snd))
 		return;
-	if (IFQ_IS_EMPTY(&ifp->if_snd))
+	if (ifq_empty(&ifp->if_snd))
 		return;
 	if (!sc->sc_link)
 		return;
@@ -2346,18 +2363,19 @@ mvpp2_mac_config(struct mvpp2_port *sc)
 		mvpp2_xlg_write(sc, MV_XLG_PORT_MAC_CTRL0_REG,
 		    mvpp2_xlg_read(sc, MV_XLG_PORT_MAC_CTRL0_REG) &
 		    ~MV_XLG_MAC_CTRL0_MACRESETN_MASK);
-		if (sc->sc_phy_mode == PHY_MODE_10GBASER) {
-			reg = mvpp2_mpcs_read(sc, MVPP22_MPCS_CLOCK_RESET);
-			reg |= MVPP22_MPCS_CLK_DIV_PHASE_SET_MASK;
-			reg &= ~MVPP22_MPCS_TX_SD_CLK_RESET_MASK;
-			reg &= ~MVPP22_MPCS_RX_SD_CLK_RESET_MASK;
-			reg &= ~MVPP22_MPCS_MAC_CLK_RESET_MASK;
-			mvpp2_mpcs_write(sc, MVPP22_MPCS_CLOCK_RESET, reg);
-		} else if (sc->sc_phy_mode == PHY_MODE_XAUI)
-			mvpp2_xpcs_write(sc, MVPP22_XPCS_GLOBAL_CFG_0_REG,
-			    mvpp2_xpcs_read(sc, MVPP22_XPCS_GLOBAL_CFG_0_REG) &
-			    ~MVPP22_XPCS_PCSRESET);
+		reg = mvpp2_mpcs_read(sc, MVPP22_MPCS_CLOCK_RESET);
+		reg |= MVPP22_MPCS_CLK_DIV_PHASE_SET_MASK;
+		reg &= ~MVPP22_MPCS_TX_SD_CLK_RESET_MASK;
+		reg &= ~MVPP22_MPCS_RX_SD_CLK_RESET_MASK;
+		reg &= ~MVPP22_MPCS_MAC_CLK_RESET_MASK;
+		mvpp2_mpcs_write(sc, MVPP22_MPCS_CLOCK_RESET, reg);
+		reg = mvpp2_xpcs_read(sc, MVPP22_XPCS_GLOBAL_CFG_0_REG);
+		reg &= ~MVPP22_XPCS_PCSRESET;
+		mvpp2_xpcs_write(sc, MVPP22_XPCS_GLOBAL_CFG_0_REG, reg);
 	}
+
+	mvpp2_comphy_config(sc);
+	mvpp2_gop_config(sc);
 
 	if (sc->sc_gop_id == 0) {
 		if (sc->sc_phy_mode == PHY_MODE_10GBASER) {
@@ -2367,10 +2385,11 @@ mvpp2_mac_config(struct mvpp2_port *sc)
 			reg |= MVPP22_MPCS_RX_SD_CLK_RESET_MASK;
 			reg |= MVPP22_MPCS_MAC_CLK_RESET_MASK;
 			mvpp2_mpcs_write(sc, MVPP22_MPCS_CLOCK_RESET, reg);
-		} else if (sc->sc_phy_mode == PHY_MODE_XAUI)
-			mvpp2_xpcs_write(sc, MVPP22_XPCS_GLOBAL_CFG_0_REG,
-			    mvpp2_xpcs_read(sc, MVPP22_XPCS_GLOBAL_CFG_0_REG) |
-			    MVPP22_XPCS_PCSRESET);
+		} else if (sc->sc_phy_mode == PHY_MODE_XAUI) {
+			reg = mvpp2_xpcs_read(sc, MVPP22_XPCS_GLOBAL_CFG_0_REG);
+			reg |= MVPP22_XPCS_PCSRESET;
+			mvpp2_xpcs_write(sc, MVPP22_XPCS_GLOBAL_CFG_0_REG, reg);
+		}
 
 		reg = mvpp2_xlg_read(sc, MV_XLG_PORT_MAC_CTRL3_REG);
 		reg &= ~MV_XLG_MAC_CTRL3_MACMODESELECT_MASK;
@@ -2513,6 +2532,147 @@ mvpp2_gmac_config(struct mvpp2_port *sc)
 	while (mvpp2_gmac_read(sc, MVPP2_PORT_CTRL2_REG) &
 	    MVPP2_PORT_CTRL2_PORTMACRESET_MASK)
 		;
+}
+
+#define COMPHY_BASE		0x120000
+#define COMPHY_SIP_POWER_ON	0x82000001
+#define COMPHY_SIP_POWER_OFF	0x82000002
+#define COMPHY_SPEED(x)		((x) << 2)
+#define  COMPHY_SPEED_1_25G		0 /* SGMII 1G */
+#define  COMPHY_SPEED_2_5G		1
+#define  COMPHY_SPEED_3_125G		2 /* SGMII 2.5G */
+#define  COMPHY_SPEED_5G		3
+#define  COMPHY_SPEED_5_15625G		4 /* XFI 5G */
+#define  COMPHY_SPEED_6G		5
+#define  COMPHY_SPEED_10_3125G		6 /* XFI 10G */
+#define COMPHY_UNIT(x)		((x) << 8)
+#define COMPHY_MODE(x)		((x) << 12)
+#define  COMPHY_MODE_SATA		1
+#define  COMPHY_MODE_SGMII		2 /* SGMII 1G */
+#define  COMPHY_MODE_HS_SGMII		3 /* SGMII 2.5G */
+#define  COMPHY_MODE_USB3H		4
+#define  COMPHY_MODE_USB3D		5
+#define  COMPHY_MODE_PCIE		6
+#define  COMPHY_MODE_RXAUI		7
+#define  COMPHY_MODE_XFI		8
+#define  COMPHY_MODE_SFI		9
+#define  COMPHY_MODE_USB3		10
+#define  COMPHY_MODE_AP			11
+
+void
+mvpp2_comphy_config(struct mvpp2_port *sc)
+{
+	int node, phys[2], lane, unit;
+	uint32_t mode;
+
+	if (OF_getpropintarray(sc->sc_node, "phys", phys, sizeof(phys)) !=
+	    sizeof(phys))
+		return;
+	node = OF_getnodebyphandle(phys[0]);
+	if (!node)
+		return;
+
+	lane = OF_getpropint(node, "reg", 0);
+	unit = phys[1];
+
+	switch (sc->sc_phy_mode) {
+	case PHY_MODE_XAUI:
+		mode = COMPHY_MODE(COMPHY_MODE_RXAUI) |
+		    COMPHY_UNIT(unit);
+		break;
+	case PHY_MODE_10GBASER:
+		mode = COMPHY_MODE(COMPHY_MODE_XFI) |
+		    COMPHY_SPEED(COMPHY_SPEED_10_3125G) |
+		    COMPHY_UNIT(unit);
+		break;
+	case PHY_MODE_2500BASEX:
+		mode = COMPHY_MODE(COMPHY_MODE_HS_SGMII) |
+		    COMPHY_SPEED(COMPHY_SPEED_3_125G) |
+		    COMPHY_UNIT(unit);
+		break;
+	case PHY_MODE_1000BASEX:
+	case PHY_MODE_SGMII:
+		mode = COMPHY_MODE(COMPHY_MODE_SGMII) |
+		    COMPHY_SPEED(COMPHY_SPEED_1_25G) |
+		    COMPHY_UNIT(unit);
+		break;
+	default:
+		return;
+	}
+
+	smc_call(COMPHY_SIP_POWER_ON, sc->sc->sc_ioh_paddr + COMPHY_BASE,
+	    lane, mode);
+}
+
+void
+mvpp2_gop_config(struct mvpp2_port *sc)
+{
+	uint32_t reg;
+
+	if (sc->sc->sc_rm == NULL)
+		return;
+
+	if (sc->sc_phy_mode == PHY_MODE_RGMII ||
+	    sc->sc_phy_mode == PHY_MODE_RGMII_ID ||
+	    sc->sc_phy_mode == PHY_MODE_RGMII_RXID ||
+	    sc->sc_phy_mode == PHY_MODE_RGMII_TXID) {
+		if (sc->sc_gop_id == 0)
+			return;
+		reg = regmap_read_4(sc->sc->sc_rm, GENCONF_PORT_CTRL0);
+		reg |= GENCONF_PORT_CTRL0_BUS_WIDTH_SELECT;
+		regmap_write_4(sc->sc->sc_rm, GENCONF_PORT_CTRL0, reg);
+		reg = regmap_read_4(sc->sc->sc_rm, GENCONF_CTRL0);
+		if (sc->sc_gop_id == 2)
+			reg |= GENCONF_CTRL0_PORT0_RGMII |
+			    GENCONF_CTRL0_PORT1_RGMII;
+		else if (sc->sc_gop_id == 3)
+			reg |= GENCONF_CTRL0_PORT1_RGMII_MII;
+		regmap_write_4(sc->sc->sc_rm, GENCONF_CTRL0, reg);
+	} else if (sc->sc_phy_mode == PHY_MODE_2500BASEX ||
+	    sc->sc_phy_mode == PHY_MODE_1000BASEX ||
+	    sc->sc_phy_mode == PHY_MODE_SGMII) {
+		reg = regmap_read_4(sc->sc->sc_rm, GENCONF_PORT_CTRL0);
+		reg |= GENCONF_PORT_CTRL0_BUS_WIDTH_SELECT |
+		    GENCONF_PORT_CTRL0_RX_DATA_SAMPLE;
+		regmap_write_4(sc->sc->sc_rm, GENCONF_PORT_CTRL0, reg);
+		if (sc->sc_gop_id > 1) {
+			reg = regmap_read_4(sc->sc->sc_rm, GENCONF_CTRL0);
+			if (sc->sc_gop_id == 2)
+				reg &= ~GENCONF_CTRL0_PORT0_RGMII;
+			else if (sc->sc_gop_id == 3)
+				reg &= ~GENCONF_CTRL0_PORT1_RGMII_MII;
+			regmap_write_4(sc->sc->sc_rm, GENCONF_CTRL0, reg);
+		}
+	} else if (sc->sc_phy_mode == PHY_MODE_10GBASER) {
+		if (sc->sc_gop_id != 0)
+			return;
+		reg = mvpp2_xpcs_read(sc, MVPP22_XPCS_GLOBAL_CFG_0_REG);
+		reg &= ~MVPP22_XPCS_PCSMODE_MASK;
+		reg &= ~MVPP22_XPCS_LANEACTIVE_MASK;
+		reg |= 2 << MVPP22_XPCS_LANEACTIVE_OFFS;
+		mvpp2_xpcs_write(sc, MVPP22_XPCS_GLOBAL_CFG_0_REG, reg);
+		reg = mvpp2_mpcs_read(sc, MVPP22_MPCS40G_COMMON_CONTROL);
+		reg &= ~MVPP22_MPCS_FORWARD_ERROR_CORRECTION_MASK;
+		mvpp2_mpcs_write(sc, MVPP22_MPCS40G_COMMON_CONTROL, reg);
+		reg = mvpp2_mpcs_read(sc, MVPP22_MPCS_CLOCK_RESET);
+		reg &= ~MVPP22_MPCS_CLK_DIVISION_RATIO_MASK;
+		reg |= MVPP22_MPCS_CLK_DIVISION_RATIO_DEFAULT;
+		mvpp2_mpcs_write(sc, MVPP22_MPCS_CLOCK_RESET, reg);
+	} else
+		return;
+
+	reg = regmap_read_4(sc->sc->sc_rm, GENCONF_PORT_CTRL1);
+	reg |= GENCONF_PORT_CTRL1_RESET(sc->sc_gop_id) |
+	    GENCONF_PORT_CTRL1_EN(sc->sc_gop_id);
+	regmap_write_4(sc->sc->sc_rm, GENCONF_PORT_CTRL1, reg);
+
+	reg = regmap_read_4(sc->sc->sc_rm, GENCONF_PORT_CTRL0);
+	reg |= GENCONF_PORT_CTRL0_CLK_DIV_PHASE_CLR;
+	regmap_write_4(sc->sc->sc_rm, GENCONF_PORT_CTRL0, reg);
+
+	reg = regmap_read_4(sc->sc->sc_rm, GENCONF_SOFT_RESET1);
+	reg |= GENCONF_SOFT_RESET1_GOP;
+	regmap_write_4(sc->sc->sc_rm, GENCONF_SOFT_RESET1, reg);
 }
 
 void
@@ -3173,10 +3333,10 @@ mvpp2_prs_sram_ri_update(struct mvpp2_prs_entry *pe, uint32_t bits, uint32_t mas
 	int i;
 
 	for (i = 0; i < MVPP2_PRS_SRAM_RI_CTRL_BITS; i++) {
-		if (!(mask & (1 << i)))
+		if (!(mask & BIT(i)))
 			continue;
 
-		if (bits & (1 << i))
+		if (bits & BIT(i))
 			mvpp2_prs_sram_bits_set(pe, ri_off + i, 1);
 		else
 			mvpp2_prs_sram_bits_clear(pe, ri_off + i, 1);
@@ -3198,10 +3358,10 @@ mvpp2_prs_sram_ai_update(struct mvpp2_prs_entry *pe, uint32_t bits, uint32_t mas
 	int i;
 
 	for (i = 0; i < MVPP2_PRS_SRAM_AI_CTRL_BITS; i++) {
-		if (!(mask & (1 << i)))
+		if (!(mask & BIT(i)))
 			continue;
 
-		if (bits & (1 << i))
+		if (bits & BIT(i))
 			mvpp2_prs_sram_bits_set(pe, ai_off + i, 1);
 		else
 			mvpp2_prs_sram_bits_clear(pe, ai_off + i, 1);
@@ -3316,12 +3476,15 @@ mvpp2_prs_hw_write(struct mvpp2_softc *sc, struct mvpp2_prs_entry *pe)
 }
 
 int
-mvpp2_prs_hw_read(struct mvpp2_softc *sc, struct mvpp2_prs_entry *pe)
+mvpp2_prs_hw_read(struct mvpp2_softc *sc, struct mvpp2_prs_entry *pe, int tid)
 {
 	int i;
 
-	if (pe->index > MVPP2_PRS_TCAM_SRAM_SIZE - 1)
+	if (tid > MVPP2_PRS_TCAM_SRAM_SIZE - 1)
 		return EINVAL;
+
+	memset(pe, 0, sizeof(*pe));
+	pe->index = tid;
 
 	mvpp2_write(sc, MVPP2_PRS_TCAM_IDX_REG, pe->index);
 	pe->tcam.word[MVPP2_PRS_TCAM_INV_WORD] =
@@ -3340,38 +3503,26 @@ mvpp2_prs_hw_read(struct mvpp2_softc *sc, struct mvpp2_prs_entry *pe)
 	return 0;
 }
 
-struct mvpp2_prs_entry *
+int
 mvpp2_prs_flow_find(struct mvpp2_softc *sc, int flow)
 {
-	struct mvpp2_prs_entry *pe;
-	uint32_t word, enable;
+	struct mvpp2_prs_entry pe;
 	uint8_t bits;
 	int tid;
 
-	pe = malloc(sizeof(*pe), M_TEMP, M_NOWAIT);
-	if (pe == NULL)
-		return NULL;
-
-	mvpp2_prs_tcam_lu_set(pe, MVPP2_PRS_LU_FLOWS);
 	for (tid = MVPP2_PRS_TCAM_SRAM_SIZE - 1; tid >= 0; tid--) {
 		if (!sc->sc_prs_shadow[tid].valid ||
 		    sc->sc_prs_shadow[tid].lu != MVPP2_PRS_LU_FLOWS)
 			continue;
 
-		pe->index = tid;
-		mvpp2_prs_hw_read(sc, pe);
+		mvpp2_prs_hw_read(sc, &pe, tid);
+		bits = mvpp2_prs_sram_ai_get(&pe);
 
-		mvpp2_prs_tcam_data_word_get(pe, 0, &word, &enable);
-		if ((word != 0) || (enable != 0))
-			continue;
-
-		bits = mvpp2_prs_sram_ai_get(pe);
 		if ((bits & MVPP2_PRS_FLOW_ID_MASK) == flow)
-			return pe;
+			return tid;
 	}
 
-	free(pe, M_TEMP, sizeof(*pe));
-	return NULL;
+	return -1;
 }
 
 int
@@ -3400,8 +3551,7 @@ mvpp2_prs_mac_drop_all_set(struct mvpp2_softc *sc, uint32_t port, int add)
 	struct mvpp2_prs_entry pe;
 
 	if (sc->sc_prs_shadow[MVPP2_PE_DROP_ALL].valid) {
-		pe.index = MVPP2_PE_DROP_ALL;
-		mvpp2_prs_hw_read(sc, &pe);
+		mvpp2_prs_hw_read(sc, &pe, MVPP2_PE_DROP_ALL);
 	} else {
 		memset(&pe, 0, sizeof(pe));
 		mvpp2_prs_tcam_lu_set(&pe, MVPP2_PRS_LU_MAC);
@@ -3424,8 +3574,7 @@ mvpp2_prs_mac_promisc_set(struct mvpp2_softc *sc, uint32_t port, int add)
 	struct mvpp2_prs_entry pe;
 
 	if (sc->sc_prs_shadow[MVPP2_PE_MAC_PROMISCUOUS].valid) {
-		pe.index = MVPP2_PE_MAC_PROMISCUOUS;
-		mvpp2_prs_hw_read(sc, &pe);
+		mvpp2_prs_hw_read(sc, &pe, MVPP2_PE_MAC_PROMISCUOUS);
 	} else {
 		memset(&pe, 0, sizeof(pe));
 		mvpp2_prs_tcam_lu_set(&pe, MVPP2_PRS_LU_MAC);
@@ -3452,8 +3601,7 @@ mvpp2_prs_mac_multi_set(struct mvpp2_softc *sc, uint32_t port, uint32_t index, i
 	da_mc = (index == MVPP2_PE_MAC_MC_ALL) ? 0x01 : 0x33;
 
 	if (sc->sc_prs_shadow[index].valid) {
-		pe.index = index;
-		mvpp2_prs_hw_read(sc, &pe);
+		mvpp2_prs_hw_read(sc, &pe, index);
 	} else {
 		memset(&pe, 0, sizeof(pe));
 		mvpp2_prs_tcam_lu_set(&pe, MVPP2_PRS_LU_MAC);
@@ -3488,8 +3636,7 @@ mvpp2_prs_dsa_tag_set(struct mvpp2_softc *sc, uint32_t port, int add,
 	}
 
 	if (sc->sc_prs_shadow[tid].valid) {
-		pe.index = tid;
-		mvpp2_prs_hw_read(sc, &pe);
+		mvpp2_prs_hw_read(sc, &pe, tid);
 	} else {
 		memset(&pe, 0, sizeof(pe));
 		mvpp2_prs_tcam_lu_set(&pe, MVPP2_PRS_LU_DSA);
@@ -3533,13 +3680,12 @@ mvpp2_prs_dsa_tag_ethertype_set(struct mvpp2_softc *sc, uint32_t port,
 	}
 
 	if (sc->sc_prs_shadow[tid].valid) {
-		pe.index = tid;
-		mvpp2_prs_hw_read(sc, &pe);
+		mvpp2_prs_hw_read(sc, &pe, tid);
 	} else {
 		memset(&pe, 0, sizeof(pe));
 		mvpp2_prs_tcam_lu_set(&pe, MVPP2_PRS_LU_DSA);
 		pe.index = tid;
-		mvpp2_prs_match_etype(&pe, 0, MV_ETH_P_EDSA);
+		mvpp2_prs_match_etype(&pe, 0, 0xdada);
 		mvpp2_prs_match_etype(&pe, 2, 0);
 		mvpp2_prs_sram_ri_update(&pe, MVPP2_PRS_RI_DSA_MASK,
 		    MVPP2_PRS_RI_DSA_MASK);
@@ -3582,8 +3728,7 @@ mvpp2_prs_vlan_find(struct mvpp2_softc *sc, uint16_t tpid, int ai)
 		if (!sc->sc_prs_shadow[tid].valid ||
 		    sc->sc_prs_shadow[tid].lu != MVPP2_PRS_LU_VLAN)
 			continue;
-		pe->index = tid;
-		mvpp2_prs_hw_read(sc, pe);
+		mvpp2_prs_hw_read(sc, pe, tid);
 		match = mvpp2_prs_tcam_data_cmp(pe, 0, swap16(tpid));
 		if (!match)
 			continue;
@@ -3627,8 +3772,7 @@ mvpp2_prs_vlan_add(struct mvpp2_softc *sc, uint16_t tpid, int ai, uint32_t port_
 			if (!sc->sc_prs_shadow[tid_aux].valid ||
 			    sc->sc_prs_shadow[tid_aux].lu != MVPP2_PRS_LU_VLAN)
 				continue;
-			pe->index = tid_aux;
-			mvpp2_prs_hw_read(sc, pe);
+			mvpp2_prs_hw_read(sc, pe, tid_aux);
 			ri_bits = mvpp2_prs_sram_ri_get(pe);
 			if ((ri_bits & MVPP2_PRS_RI_VLAN_MASK) ==
 			    MVPP2_PRS_RI_VLAN_DOUBLE)
@@ -3698,8 +3842,7 @@ mvpp2_prs_double_vlan_find(struct mvpp2_softc *sc, uint16_t tpid1, uint16_t tpid
 		    sc->sc_prs_shadow[tid].lu != MVPP2_PRS_LU_VLAN)
 			continue;
 
-		pe->index = tid;
-		mvpp2_prs_hw_read(sc, pe);
+		mvpp2_prs_hw_read(sc, pe, tid);
 		match = mvpp2_prs_tcam_data_cmp(pe, 0, swap16(tpid1)) &&
 		    mvpp2_prs_tcam_data_cmp(pe, 4, swap16(tpid2));
 		if (!match)
@@ -3743,8 +3886,7 @@ mvpp2_prs_double_vlan_add(struct mvpp2_softc *sc, uint16_t tpid1, uint16_t tpid2
 			if (!sc->sc_prs_shadow[tid_aux].valid ||
 			    sc->sc_prs_shadow[tid_aux].lu != MVPP2_PRS_LU_VLAN)
 				continue;
-			pe->index = tid_aux;
-			mvpp2_prs_hw_read(sc, pe);
+			mvpp2_prs_hw_read(sc, pe, tid_aux);
 			ri_bits = mvpp2_prs_sram_ri_get(pe);
 			ri_bits &= MVPP2_PRS_RI_VLAN_MASK;
 			if (ri_bits == MVPP2_PRS_RI_VLAN_SINGLE ||
@@ -3788,8 +3930,8 @@ mvpp2_prs_ip4_proto(struct mvpp2_softc *sc, uint16_t proto, uint32_t ri,
 	struct mvpp2_prs_entry pe;
 	int tid;
 
-	if ((proto != MV_IPPR_TCP) && (proto != MV_IPPR_UDP) &&
-	    (proto != MV_IPPR_IGMP))
+	if ((proto != IPPROTO_TCP) && (proto != IPPROTO_UDP) &&
+	    (proto != IPPROTO_IGMP))
 		return EINVAL;
 
 	tid = mvpp2_prs_tcam_first_free(sc, MVPP2_PE_FIRST_FREE_TID,
@@ -3802,7 +3944,7 @@ mvpp2_prs_ip4_proto(struct mvpp2_softc *sc, uint16_t proto, uint32_t ri,
 	pe.index = tid;
 	mvpp2_prs_sram_next_lu_set(&pe, MVPP2_PRS_LU_IP4);
 	mvpp2_prs_sram_shift_set(&pe, 12, MVPP2_PRS_SRAM_OP_SEL_SHIFT_ADD);
-	mvpp2_prs_sram_offset_set( &pe, MVPP2_PRS_SRAM_UDF_TYPE_L4,
+	mvpp2_prs_sram_offset_set(&pe, MVPP2_PRS_SRAM_UDF_TYPE_L4,
 	    sizeof(struct ip) - 4, MVPP2_PRS_SRAM_OP_SEL_UDF_ADD);
 	mvpp2_prs_sram_ai_update(&pe, MVPP2_PRS_IPV4_DIP_AI_BIT,
 	    MVPP2_PRS_IPV4_DIP_AI_BIT);
@@ -3884,8 +4026,8 @@ mvpp2_prs_ip6_proto(struct mvpp2_softc *sc, uint16_t proto, uint32_t ri,
 	struct mvpp2_prs_entry pe;
 	int tid;
 
-	if ((proto != MV_IPPR_TCP) && (proto != MV_IPPR_UDP) &&
-	    (proto != MV_IPPR_ICMPV6) && (proto != MV_IPPR_IPIP))
+	if ((proto != IPPROTO_TCP) && (proto != IPPROTO_UDP) &&
+	    (proto != IPPROTO_ICMPV6) && (proto != IPPROTO_IPIP))
 		return EINVAL;
 
 	tid = mvpp2_prs_tcam_first_free(sc, MVPP2_PE_FIRST_FREE_TID,
@@ -3899,7 +4041,7 @@ mvpp2_prs_ip6_proto(struct mvpp2_softc *sc, uint16_t proto, uint32_t ri,
 	mvpp2_prs_sram_next_lu_set(&pe, MVPP2_PRS_LU_FLOWS);
 	mvpp2_prs_sram_bits_set(&pe, MVPP2_PRS_SRAM_LU_GEN_BIT, 1);
 	mvpp2_prs_sram_ri_update(&pe, ri, ri_mask);
-	mvpp2_prs_sram_offset_set( &pe, MVPP2_PRS_SRAM_UDF_TYPE_L4,
+	mvpp2_prs_sram_offset_set(&pe, MVPP2_PRS_SRAM_UDF_TYPE_L4,
 	    sizeof(struct ip6_hdr) - 6, MVPP2_PRS_SRAM_OP_SEL_UDF_ADD);
 	mvpp2_prs_tcam_data_byte_set(&pe, 0, proto, MVPP2_PRS_TCAM_PROTO_MASK);
 	mvpp2_prs_tcam_ai_update(&pe, MVPP2_PRS_IPV6_NO_EXT_AI_BIT,
@@ -3983,8 +4125,7 @@ mvpp2_prs_mac_da_range_find(struct mvpp2_softc *sc, int pmap, const uint8_t *da,
 		    (sc->sc_prs_shadow[tid].udf != udf_type))
 			continue;
 
-		pe->index = tid;
-		mvpp2_prs_hw_read(sc, pe);
+		mvpp2_prs_hw_read(sc, pe, tid);
 		entry_pmap = mvpp2_prs_tcam_port_map_get(pe);
 		if (mvpp2_prs_mac_range_equals(pe, da, mask) &&
 		    entry_pmap == pmap)
@@ -4120,31 +4261,30 @@ mvpp2_prs_tag_mode_set(struct mvpp2_softc *sc, int port_id, int type)
 int
 mvpp2_prs_def_flow(struct mvpp2_port *port)
 {
-	struct mvpp2_prs_entry *pe;
+	struct mvpp2_prs_entry pe;
 	int tid;
 
-	pe = mvpp2_prs_flow_find(port->sc, port->sc_id);
-	if (pe == NULL) {
+	memset(&pe, 0, sizeof(pe));
+
+	tid = mvpp2_prs_flow_find(port->sc, port->sc_id);
+	if (tid < 0) {
 		tid = mvpp2_prs_tcam_first_free(port->sc,
 		    MVPP2_PE_LAST_FREE_TID, MVPP2_PE_FIRST_FREE_TID);
 		if (tid < 0)
 			return tid;
 
-		pe = malloc(sizeof(*pe), M_TEMP, M_NOWAIT);
-		if (pe == NULL)
-			return ENOMEM;
-
-		mvpp2_prs_tcam_lu_set(pe, MVPP2_PRS_LU_FLOWS);
-		pe->index = tid;
-		mvpp2_prs_sram_ai_update(pe, port->sc_id,
+		pe.index = tid;
+		mvpp2_prs_sram_ai_update(&pe, port->sc_id,
 		    MVPP2_PRS_FLOW_ID_MASK);
-		mvpp2_prs_sram_bits_set(pe, MVPP2_PRS_SRAM_LU_DONE_BIT, 1);
-		mvpp2_prs_shadow_set(port->sc, pe->index, MVPP2_PRS_LU_FLOWS);
+		mvpp2_prs_sram_bits_set(&pe, MVPP2_PRS_SRAM_LU_DONE_BIT, 1);
+		mvpp2_prs_shadow_set(port->sc, pe.index, MVPP2_PRS_LU_FLOWS);
+	} else {
+		mvpp2_prs_hw_read(port->sc, &pe, tid);
 	}
 
-	mvpp2_prs_tcam_port_map_set (pe,(1 << port->sc_id));
-	mvpp2_prs_hw_write(port->sc, pe);
-	free(pe, M_TEMP, sizeof(*pe));
+	mvpp2_prs_tcam_lu_set(&pe, MVPP2_PRS_LU_FLOWS);
+	mvpp2_prs_tcam_port_map_set(&pe, (1 << port->sc_id));
+	mvpp2_prs_hw_write(port->sc, &pe);
 	return 0;
 }
 

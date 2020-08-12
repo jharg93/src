@@ -1,4 +1,4 @@
-/*	$OpenBSD: iha_pci.c,v 1.15 2020/07/02 13:08:33 krw Exp $ */
+/*	$OpenBSD: iha_pci.c,v 1.18 2020/07/20 14:41:13 krw Exp $ */
 /*-------------------------------------------------------------------------
  *
  * Device driver for the INI-9XXXU/UW or INIC-940/950  PCI SCSI Controller.
@@ -134,14 +134,16 @@ iha_pci_attach(parent, self, aux)
 			printf(": %s\n", intrstr);
 
 		if (iha_init_tulip(sc) == 0) {
-			sc->sc_link.adapter_softc    = sc;
-			sc->sc_link.adapter	     = &iha_switch;
-			sc->sc_link.openings	     = 4; /* # xs's allowed per device */
-			sc->sc_link.adapter_target   = sc->sc_id;
-			sc->sc_link.adapter_buswidth = sc->sc_maxtargets;
-			sc->sc_link.pool             = &sc->sc_iopool;
+			saa.saa_adapter_softc    = sc;
+			saa.saa_adapter	         = &iha_switch;
+			saa.saa_adapter_target   = sc->sc_id;
+			saa.saa_adapter_buswidth = sc->sc_maxtargets;
+			saa.saa_luns		 = 8;
+			saa.saa_openings	 = 4; /* # xs's allowed per device */
+			saa.saa_pool             = &sc->sc_iopool;
+			saa.saa_quirks = saa.saa_flags = 0;
+			saa.saa_wwpn = saa.saa_wwnn = 0;
 
-			saa.saa_sc_link = &sc->sc_link;
 			config_found(&sc->sc_dev, &saa, scsiprint);
 		}
 	}

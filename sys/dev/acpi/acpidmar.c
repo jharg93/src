@@ -764,20 +764,22 @@ static void
 dmar_dmamap_sync(bus_dma_tag_t tag, bus_dmamap_t dmam, bus_addr_t offset,
     bus_size_t len, int ops)
 {
+#if 0
 	struct domain *dom = tag->_cookie;
 	//int		flag;
 
-	//flag = PTE_P;
-	acpidmar_intr(dom->iommu);
-	//if (ops == BUS_DMASYNC_PREREAD) {
-	//	/* make readable */
-	//	flag |= PTE_R;
-	//}
-	//if (ops == BUS_DMASYNC_PREWRITE) {
-	//	/* make writeable */
-	//	flag |= PTE_W;
-	//}
+	flag = PTE_P;
+	//acpidmar_intr(dom->iommu);
+	if (ops == BUS_DMASYNC_PREREAD) {
+		/* make readable */
+		flag |= PTE_R;
+	}
+	else if (ops == BUS_DMASYNC_PREWRITE) {
+		/* make writeable */
+		flag |= PTE_W;
+	}
 	dmar_dumpseg(tag, dmam->dm_nsegs, dmam->dm_segs, __FUNCTION__);
+#endif
 	_bus_dmamap_sync(tag, dmam, offset, len, ops);
 }
 
@@ -2201,8 +2203,8 @@ ivhd_issue_command(struct iommu_softc *iommu, const struct ivhd_command *cmd, in
 			DELAY(1000);
 		}
 		if (i == 1000) {
-			printf("ivhd command timeout: %.8x %.8x %.8x %.8x\n", 
-				cmd->dw0, cmd->dw1, cmd->dw2, cmd->dw3);
+			printf("ivhd command timeout: %.8x %.8x %.8x %.8x wv:%llx\n", 
+				cmd->dw0, cmd->dw1, cmd->dw2, cmd->dw3, wv);
 			ivhd_showcmd(iommu);
 		}
 	}
@@ -2373,6 +2375,11 @@ ivhd_iommu_init(struct acpidmar_softc *sc, struct iommu_softc *iommu,
 		_c(EFR_HATS), _c(EFR_GATS), _c(EFR_GLXSUP), _c(EFR_SMIFSUP),
 		_c(EFR_SMIFRC), _c(EFR_GAMSUP));
 
+	/* Turn off iommu */
+	ov = iommu_readq(iommu, IOMMUCTL_REG);
+	iommu_writeq(iommu, IOMMUCTL_REG, ov & ~(CTL_IOMMUEN | CTL_COHERENT | 
+		CTL_HTTUNEN | CTL_RESPASSPW | CTL_PASSPW | CTL_ISOC));
+
 	/* Setup command buffer with 4k buffer (128 entries) */
 	iommu->cmd_tbl = iommu_alloc_page(iommu, &paddr);
 	iommu_writeq(iommu, CMD_BASE_REG, (paddr & CMD_BASE_MASK) | CMD_TBL_LEN_4K);
@@ -2393,7 +2400,6 @@ ivhd_iommu_init(struct acpidmar_softc *sc, struct iommu_softc *iommu,
 	iommu_writeq(iommu, DEV_TAB_BASE_REG, (paddr & DEV_TAB_MASK) | DEV_TAB_LEN);
 
 	/* Enable IOMMU */
-	ov = iommu_readq(iommu, IOMMUCTL_REG);
 	ov |= (CTL_IOMMUEN | CTL_EVENTLOGEN | CTL_CMDBUFEN | CTL_EVENTINTEN);
 	if (ivhd->flags & IVHD_COHERENT)
 		ov |= CTL_COHERENT;
@@ -2405,6 +2411,8 @@ ivhd_iommu_init(struct acpidmar_softc *sc, struct iommu_softc *iommu,
 		ov |= CTL_PASSPW;
 	if (ivhd->flags & IVHD_ISOC)
 		ov |= CTL_ISOC;
+	ov &= ~(CTL_INVTIMEOUT_MASK << CTL_INVTIMEOUT_SHIFT);
+	ov |=  (CTL_INVTIMEOUT_1MS  << CTL_INVTIMEOUT_SHIFT);
 	iommu_writeq(iommu, IOMMUCTL_REG, ov);
 
 	ivhd_invalidate_iommu_all(iommu);

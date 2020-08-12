@@ -1,4 +1,4 @@
-/*	$OpenBSD: sd.c,v 1.312 2020/06/30 18:43:37 krw Exp $	*/
+/*	$OpenBSD: sd.c,v 1.314 2020/08/11 15:23:57 krw Exp $	*/
 /*	$NetBSD: sd.c,v 1.111 1997/04/02 02:29:41 mycroft Exp $	*/
 
 /*-
@@ -70,6 +70,7 @@
 #include <sys/reboot.h>
 
 #include <scsi/scsi_all.h>
+#include <scsi/scsi_debug.h>
 #include <scsi/scsi_disk.h>
 #include <scsi/scsiconf.h>
 #include <scsi/sdvar.h>
@@ -832,8 +833,8 @@ sdminphys(struct buf *bp)
 			bp->b_bcount = max;
 	}
 
-	if (link->adapter->dev_minphys != NULL)
-		(*link->adapter->dev_minphys)(bp, link);
+	if (link->bus->sb_adapter->dev_minphys != NULL)
+		(*link->bus->sb_adapter->dev_minphys)(bp, link);
 	else
 		minphys(bp);
 

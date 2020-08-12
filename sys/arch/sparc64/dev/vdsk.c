@@ -1,4 +1,4 @@
-/*	$OpenBSD: vdsk.c,v 1.56 2020/06/27 14:29:44 krw Exp $	*/
+/*	$OpenBSD: vdsk.c,v 1.63 2020/07/22 22:06:00 krw Exp $	*/
 /*
  * Copyright (c) 2009, 2011 Mark Kettenis
  *
@@ -160,7 +160,6 @@ struct vdsk_softc {
 	struct vdsk_soft_desc *sc_vsd;
 
 	struct scsi_iopool sc_iopool;
-	struct scsi_link sc_link;
 
 	uint32_t	sc_vdisk_block_size;
 	uint64_t	sc_vdisk_size;
@@ -345,16 +344,17 @@ vdsk_attach(struct device *parent, struct device *self, void *aux)
 
 	scsi_iopool_init(&sc->sc_iopool, sc, vdsk_io_get, vdsk_io_put);
 
-	sc->sc_link.adapter = &vdsk_switch;
-	sc->sc_link.adapter_softc = self;
-	/* Only valid target/lun is 0/0. */
-	sc->sc_link.adapter_buswidth = 1;
-	sc->sc_link.luns = 1;
-	sc->sc_link.adapter_target = SDEV_NO_ADAPTER_TARGET;
-	sc->sc_link.openings = sc->sc_vd->vd_nentries - 1;
-	sc->sc_link.pool = &sc->sc_iopool;
 
-	saa.saa_sc_link = &sc->sc_link;
+	saa.saa_adapter = &vdsk_switch;
+	saa.saa_adapter_softc = self;
+	saa.saa_adapter_buswidth = 1;
+	saa.saa_luns = 1;
+	saa.saa_adapter_target = SDEV_NO_ADAPTER_TARGET;
+	saa.saa_openings = sc->sc_vd->vd_nentries - 1;
+	saa.saa_pool = &sc->sc_iopool;
+	saa.saa_quirks = saa.saa_flags = 0;
+	saa.saa_wwpn = saa.saa_wwnn = 0;
+
 	config_found(self, &saa, scsiprint);
 
 	return;
@@ -923,7 +923,7 @@ vdsk_io_put(void *xsc, void *io)
 void
 vdsk_scsi_cmd(struct scsi_xfer *xs)
 {
-	struct vdsk_softc *sc = xs->sc_link->adapter_softc;
+	struct vdsk_softc *sc = xs->sc_link->bus->sb_adapter_softc;
 	int timeout, s;
 	int desc;
 
@@ -992,7 +992,7 @@ vdsk_scsi_cmd(struct scsi_xfer *xs)
 int
 vdsk_submit_cmd(struct scsi_xfer *xs)
 {
-	struct vdsk_softc *sc = xs->sc_link->adapter_softc;
+	struct vdsk_softc *sc = xs->sc_link->bus->sb_adapter_softc;
 	struct ldc_map *map = sc->sc_lm;
 	struct vio_dring_msg dm;
 	struct scsi_rw *rw;
@@ -1115,7 +1115,7 @@ vdsk_submit_cmd(struct scsi_xfer *xs)
 void
 vdsk_complete_cmd(struct scsi_xfer *xs, int desc)
 {
-	struct vdsk_softc *sc = xs->sc_link->adapter_softc;
+	struct vdsk_softc *sc = xs->sc_link->bus->sb_adapter_softc;
 	struct ldc_map *map = sc->sc_lm;
 	int cookie, idx;
 	int error;
@@ -1151,7 +1151,7 @@ vdsk_scsi_inq(struct scsi_xfer *xs)
 void
 vdsk_scsi_inquiry(struct scsi_xfer *xs)
 {
-	struct vdsk_softc *sc = xs->sc_link->adapter_softc;
+	struct vdsk_softc *sc = xs->sc_link->bus->sb_adapter_softc;
 	struct scsi_inquiry_data inq;
 	char buf[5];
 
@@ -1186,7 +1186,7 @@ vdsk_scsi_inquiry(struct scsi_xfer *xs)
 void
 vdsk_scsi_capacity(struct scsi_xfer *xs)
 {
-	struct vdsk_softc *sc = xs->sc_link->adapter_softc;
+	struct vdsk_softc *sc = xs->sc_link->bus->sb_adapter_softc;
 	struct scsi_read_cap_data rcd;
 	uint64_t capacity;
 
@@ -1207,7 +1207,7 @@ vdsk_scsi_capacity(struct scsi_xfer *xs)
 void
 vdsk_scsi_capacity16(struct scsi_xfer *xs)
 {
-	struct vdsk_softc *sc = xs->sc_link->adapter_softc;
+	struct vdsk_softc *sc = xs->sc_link->bus->sb_adapter_softc;
 	struct scsi_read_cap_data_16 rcd;
 
 	bzero(&rcd, sizeof(rcd));

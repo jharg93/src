@@ -1,4 +1,4 @@
-/*	$OpenBSD: siop.c,v 1.79 2020/07/04 16:41:23 krw Exp $ */
+/*	$OpenBSD: siop.c,v 1.85 2020/07/30 00:03:25 krw Exp $ */
 /*	$NetBSD: siop.c,v 1.79 2005/11/18 23:10:32 bouyer Exp $	*/
 
 /*
@@ -48,7 +48,6 @@
 #include <dev/ic/siopvar.h>
 
 #ifndef SIOP_DEBUG
-#undef SIOP_DEBUG
 #undef SIOP_DEBUG_DR
 #undef SIOP_DEBUG_INTR
 #undef SIOP_DEBUG_SCHED
@@ -210,15 +209,15 @@ siop_attach(sc)
 	siop_dump_script(sc);
 #endif
 
-	sc->sc_c.sc_link.adapter_softc = sc;
-	sc->sc_c.sc_link.adapter = &siop_switch;
-	sc->sc_c.sc_link.openings = SIOP_NTAG;
-	sc->sc_c.sc_link.pool = &sc->iopool;
-	sc->sc_c.sc_link.adapter_target = sc->sc_c.sc_id;
-	sc->sc_c.sc_link.adapter_buswidth = (sc->sc_c.features & SF_BUS_WIDE) ?
-	    16 : 8;
-
-	saa.saa_sc_link = &sc->sc_c.sc_link;
+	saa.saa_adapter_softc = sc;
+	saa.saa_adapter = &siop_switch;
+	saa.saa_adapter_target = sc->sc_c.sc_id;
+	saa.saa_adapter_buswidth = (sc->sc_c.features & SF_BUS_WIDE) ? 16 : 8;
+	saa.saa_luns = 8;
+	saa.saa_openings = SIOP_NTAG;
+	saa.saa_pool = &sc->iopool;
+	saa.saa_quirks = saa.saa_flags = 0;
+	saa.saa_wwpn = saa.saa_wwnn = 0;
 
 	config_found((struct device*)sc, &saa, scsiprint);
 }
@@ -1392,7 +1391,7 @@ siop_cmd_put(void *cookie, void *io)
 int
 siop_scsiprobe(struct scsi_link *link)
 {
-	struct siop_softc *sc = (struct siop_softc *)link->adapter_softc;
+	struct siop_softc *sc = link->bus->sb_adapter_softc;
 	struct siop_target *siop_target;
 	const int target = link->target;
 	const int lun = link->lun;
@@ -1458,7 +1457,7 @@ void
 siop_scsicmd(xs)
 	struct scsi_xfer *xs;
 {
-	struct siop_softc *sc = (struct siop_softc *)xs->sc_link->adapter_softc;
+	struct siop_softc *sc = xs->sc_link->bus->sb_adapter_softc;
 	struct siop_cmd *siop_cmd;
 	struct siop_target *siop_target;
 	int s, error, i, j;
@@ -1927,8 +1926,8 @@ siop_morecbd(sc)
 		TAILQ_INSERT_TAIL(&sc->free_list, &newcbd->cmds[i], next);
 		splx(s);
 #ifdef SIOP_DEBUG
-		printf("tables[%d]: in=0x%x out=0x%x status=0x%x "
-		    "offset=0x%x\n", i,
+		printf("tables[%d]: in=0x%x out=0x%x status=0x%x\n",
+		    i,
 		    siop_ctoh32(&sc->sc_c,
 			newcbd->cmds[i].cmd_tables->t_msgin.addr),
 		    siop_ctoh32(&sc->sc_c,
@@ -2174,7 +2173,7 @@ siop_add_dev(sc, target, lun)
 void
 siop_scsifree(struct scsi_link *link)
 {
-	struct siop_softc *sc = link->adapter_softc;
+	struct siop_softc *sc = link->bus->sb_adapter_softc;
 	int target = link->target;
 	int lun = link->lun;
 	int i;

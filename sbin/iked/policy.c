@@ -1,4 +1,4 @@
-/*	$OpenBSD: policy.c,v 1.64 2020/06/03 17:56:42 tobhe Exp $	*/
+/*	$OpenBSD: policy.c,v 1.67 2020/08/06 22:04:04 tobhe Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -420,7 +420,7 @@ sa_new(struct iked *env, uint64_t ispi, uint64_t rspi,
 	} else
 		localid = &sa->sa_rid;
 
-	if (!ibuf_length(localid->id_buf) && pol != NULL &&
+	if (pol != NULL &&
 	    ikev2_policy2id(&pol->pol_localid, localid, 1) != 0) {
 		log_debug("%s: failed to get local id", __func__);
 		ikev2_ike_sa_setreason(sa, "failed to get local id");
@@ -563,7 +563,10 @@ childsa_free(struct iked_childsa *csa)
 		return;
 
 	if (csa->csa_loaded)
-		log_info("%s: csa %p is still loaded", __func__, csa);
+		log_info("%s: CHILD SA spi %s is still loaded",
+		    csa->csa_ikesa ? SPI_SA(csa->csa_ikesa, __func__) :
+		    __func__,
+		    print_spi(csa->csa_spi.spi, csa->csa_spi.spi_size));
 	if ((csb = csa->csa_bundled) != NULL)
 		csb->csa_bundled = NULL;
 	if ((csb = csa->csa_peersa) != NULL)
@@ -602,7 +605,6 @@ sa_lookup(struct iked *env, uint64_t ispi, uint64_t rspi,
 	struct iked_sa	*sa, key;
 
 	key.sa_hdr.sh_ispi = ispi;
-	/* key.sa_hdr.sh_rspi = rspi; */
 	key.sa_hdr.sh_initiator = initiator;
 
 	if ((sa = RB_FIND(iked_sas, &env->sc_sas, &key)) != NULL) {

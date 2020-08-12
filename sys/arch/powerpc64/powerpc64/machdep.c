@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.46 2020/07/08 17:48:28 kettenis Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.55 2020/07/21 21:36:58 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2020 Mark Kettenis <kettenis@openbsd.org>
@@ -26,6 +26,7 @@
 #include <sys/reboot.h>
 #include <sys/signalvar.h>
 #include <sys/syscallargs.h>
+#include <sys/sysctl.h>
 #include <sys/systm.h>
 #include <sys/user.h>
 
@@ -65,7 +66,7 @@ char machine[] = MACHINE;
 
 struct user *proc0paddr;
 
-caddr_t esym;
+caddr_t ssym, esym;
 
 extern char _start[], _end[];
 extern char __bss_start[];
@@ -91,6 +92,7 @@ void memreg_add(const struct fdt_reg *);
 void memreg_remove(const struct fdt_reg *);
 
 void parse_bootargs(const char *);
+const char *parse_bootduid(const char *);
 
 paddr_t fdt_pa;
 size_t fdt_size;
@@ -108,8 +110,8 @@ init_powernv(void *fdt, void *tocbase)
 	int i;
 
 	/* Store pointer to our struct cpu_info. */
-	__asm volatile ("mtsprg0 %0" :: "r"(&cpu_info_primary));
-	__asm volatile ("mr %%r13, %0" :: "r"(&cpu_info_primary));
+	__asm volatile ("mtsprg0 %0" :: "r"(cpu_info_primary));
+	__asm volatile ("mr %%r13, %0" :: "r"(cpu_info_primary));
 
 	/* Clear BSS. */
 	memset(__bss_start, 0, _end - __bss_start);
@@ -125,6 +127,16 @@ init_powernv(void *fdt, void *tocbase)
 		fdt_node_property(node, "opal-entry-address", &prop);
 		opal_entry = bemtoh64((uint64_t *)prop);
 		fdt_node_property(node, "compatible", &prop);
+
+		opal_reinit_cpus(OPAL_REINIT_CPUS_HILE_BE);
+
+		/*
+		 * The following call will fail on Power ISA 2.0x CPUs,
+		 * but that is fine since they don't support Radix Tree
+		 * translation.  On Power ISA 3.0 CPUs this will make
+		 * the full TLB available.
+		 */
+		opal_reinit_cpus(OPAL_REINIT_CPUS_MMU_HASH);
 	}
 
 	/* At this point we can call OPAL runtime services and use printf(9). */
@@ -217,6 +229,8 @@ init_powernv(void *fdt, void *tocbase)
 	db_machine_init();
 	if (initrd_reg.size != 0)
 		memreg_remove(&initrd_reg);
+	ssym = (caddr_t)initrd_reg.addr;
+	esym = ssym + initrd_reg.size;
 #endif
 
 	pmap_bootstrap();
@@ -445,6 +459,12 @@ copyin(const void *uaddr, void *kaddr, size_t len)
 }
 
 int
+copyin32(const uint32_t *uaddr, uint32_t *kaddr)
+{
+	return copyin(uaddr, kaddr, sizeof(uint32_t));
+}
+
+int
 copyout(const void *kaddr, void *uaddr, size_t len)
 {
 	pmap_t pm = curproc->p_vmspace->vm_map.pmap;
@@ -567,6 +587,9 @@ cpu_startup(void)
 
 	printf("%s", version);
 
+	printf("real mem  = %lu (%luMB)\n", ptoa(physmem),
+	    ptoa(physmem)/1024/1024);
+
 	/*
 	 * Allocate a submap for exec arguments.  This map effectively
 	 * limits the number of processes exec'ing at any time.
@@ -574,7 +597,6 @@ cpu_startup(void)
 	minaddr = vm_map_min(kernel_map);
 	exec_map = uvm_km_suballoc(kernel_map, &minaddr, &maxaddr,
 	    16 * NCARGS, VM_MAP_PAGEABLE, FALSE, NULL);
-
 
 	/*
 	 * Allocate a submap for physio.
@@ -586,6 +608,9 @@ cpu_startup(void)
 	 * Set up buffers, so they can be used to read disk labels.
 	 */
 	bufinit();
+
+	printf("avail mem = %lu (%luMB)\n", ptoa(uvmexp.free),
+	    ptoa(uvmexp.free)/1024/1024);
 
 	/* Remap the FDT. */
 	pa = trunc_page(fdt_pa);
@@ -608,6 +633,14 @@ cpu_startup(void)
 		len = fdt_node_property(node, "bootargs", &prop);
 		if (len > 0)
 			parse_bootargs(prop);
+
+		len = fdt_node_property(node, "openbsd,boothowto", &prop);
+		if (len == sizeof(boothowto))
+			boothowto = bemtoh32((uint32_t *)prop);
+
+		len = fdt_node_property(node, "openbsd,bootduid", &prop);
+		if (len == sizeof(bootduid))
+			memcpy(bootduid, prop, sizeof(bootduid));
 	}
 
 	if (boothowto & RB_CONFIG) {
@@ -623,6 +656,9 @@ void
 parse_bootargs(const char *bootargs)
 {
 	const char *cp = bootargs;
+
+	if (strncmp(cp, "bootduid=", strlen("bootduid=")) == 0)
+		cp = parse_bootduid(cp + strlen("bootduid="));
 
 	while (*cp != '-')
 		if (*cp++ == '\0')
@@ -649,6 +685,34 @@ parse_bootargs(const char *bootargs)
 		}
 		cp++;
 	}
+}
+
+const char *
+parse_bootduid(const char *bootarg)
+{
+	const char *cp = bootarg;
+	uint64_t duid = 0;
+	int digit, count = 0;
+
+	while (count < 16) {
+		if (*cp >= '0' && *cp <= '9')
+			digit = *cp - '0';
+		else if (*cp >= 'a' && *cp <= 'f')
+			digit = *cp - 'a' + 10;
+		else
+			break;
+		duid *= 16;
+		duid += digit;
+		count++;
+		cp++;
+	}
+
+	if (count > 0) {
+		memcpy(&bootduid, &duid, sizeof(bootduid));
+		return cp;
+	}
+
+	return bootarg;
 }
 
 #define PSL_USER \
@@ -712,13 +776,14 @@ sendsig(sig_t catcher, int sig, sigset_t mask, const siginfo_t *ksip)
 
 	/* Save register context. */
 	for (i = 0; i < 32; i++)
-		frame.sf_sc.sc_frame.fixreg[i] = tf->fixreg[i];
-	frame.sf_sc.sc_frame.lr = tf->lr;
-	frame.sf_sc.sc_frame.cr = tf->cr;
-	frame.sf_sc.sc_frame.xer = tf->xer;
-	frame.sf_sc.sc_frame.ctr = tf->ctr;
-	frame.sf_sc.sc_frame.srr0 = tf->srr0;
-	frame.sf_sc.sc_frame.srr1 = tf->srr1;
+		frame.sf_sc.sc_reg[i] = tf->fixreg[i];
+	frame.sf_sc.sc_lr = tf->lr;
+	frame.sf_sc.sc_cr = tf->cr;
+	frame.sf_sc.sc_xer = tf->xer;
+	frame.sf_sc.sc_ctr = tf->ctr;
+	frame.sf_sc.sc_pc = tf->srr0;
+	frame.sf_sc.sc_ps = tf->srr1;
+	frame.sf_sc.sc_vrsave = tf->vrsave;
 
 	/* Copy the saved FPU state into the frame if necessary. */
 	if (pcb->pcb_flags & (PCB_FP|PCB_VEC|PCB_VSX)) {
@@ -783,18 +848,19 @@ sys_sigreturn(struct proc *p, void *v, register_t *retval)
 	    offsetof(struct sigcontext, sc_cookie), sizeof (ksc.sc_cookie));
 
 	/* Make sure the processor mode has not been tampered with. */
-	if (ksc.sc_frame.srr1 != PSL_USER)
+	if (ksc.sc_ps != PSL_USER)
 		return EINVAL;
 
 	/* Restore register context. */
 	for (i = 0; i < 32; i++)
-		tf->fixreg[i] = ksc.sc_frame.fixreg[i];
-	tf->lr = ksc.sc_frame.lr;
-	tf->cr = ksc.sc_frame.cr;
-	tf->xer = ksc.sc_frame.xer;
-	tf->ctr = ksc.sc_frame.ctr;
-	tf->srr0 = ksc.sc_frame.srr0;
-	tf->srr1 = ksc.sc_frame.srr1;
+		tf->fixreg[i] = ksc.sc_reg[i];
+	tf->lr = ksc.sc_lr;
+	tf->cr = ksc.sc_cr;
+	tf->xer = ksc.sc_xer;
+	tf->ctr = ksc.sc_ctr;
+	tf->srr0 = ksc.sc_pc;
+	tf->srr1 = ksc.sc_ps;
+	tf->vrsave = ksc.sc_vrsave;
 
 	/* Write saved FPU state back to PCB if necessary. */
 	if (pcb->pcb_flags & (PCB_FP|PCB_VEC|PCB_VSX)) {
@@ -837,11 +903,15 @@ int
 cpu_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
     size_t newlen, struct proc *p)
 {
+	int altivec = 1;	/* Altivec is always supported */
+
 	/* All sysctl names at this level are terminal. */
 	if (namelen != 1)
 		return ENOTDIR;		/* overloaded */
 
 	switch (name[0]) {
+	case CPU_ALTIVEC:
+		return (sysctl_rdint(oldp, oldlenp, newp, altivec));
 	default:
 		return EOPNOTSUPP;
 	}

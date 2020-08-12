@@ -1,4 +1,4 @@
-/*	$OpenBSD: gencode.c,v 1.52 2018/12/09 15:07:06 denis Exp $	*/
+/*	$OpenBSD: gencode.c,v 1.55 2020/08/03 03:40:02 dlg Exp $	*/
 
 /*
  * Copyright (c) 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998
@@ -770,7 +770,7 @@ init_linktype(type)
 		return;
 
 	case DLT_LOOP:
-		off_linktype = -1;
+		off_linktype = 0;
 		off_nl = 4;
 		return;
 
@@ -2870,6 +2870,22 @@ gen_loadlen()
 }
 
 struct arth *
+gen_loadrnd()
+{
+	int regno = alloc_reg();
+	struct arth *a = (struct arth *)newchunk(sizeof(*a));
+	struct slist *s;
+
+	s = new_stmt(BPF_LD|BPF_RND);
+	s->next = new_stmt(BPF_ST);
+	s->next->s.k = regno;
+	a->s = s;
+	a->regno = regno;
+
+	return a;
+}
+
+struct arth *
 gen_loadi(val)
 	int val;
 {
@@ -3435,6 +3451,27 @@ gen_vlan(vlan_num)
 		gen_and(b0, b1);
 		b0 = b1;
 	}
+
+	return (b0);
+}
+
+struct block *
+gen_sample(int rate)
+{
+	struct block *b0;
+	long long threshold = 0x100000000LL; /* 0xffffffff + 1 */
+
+	if (rate < 2) {
+		bpf_error("sample %d is too low", rate);
+		/*NOTREACHED*/
+	}
+	if (rate > (1 << 20)) {
+		bpf_error("sample %d is too high", rate);
+		/*NOTREACHED*/
+	}
+
+	threshold /= rate;
+	b0 = gen_relation(BPF_JGT, gen_loadrnd(), gen_loadi(threshold), 1);
 
 	return (b0);
 }

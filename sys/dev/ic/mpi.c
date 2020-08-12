@@ -1,4 +1,4 @@
-/*	$OpenBSD: mpi.c,v 1.214 2020/06/27 14:29:45 krw Exp $ */
+/*	$OpenBSD: mpi.c,v 1.221 2020/07/20 14:41:13 krw Exp $ */
 
 /*
  * Copyright (c) 2005, 2006, 2009 David Gwynne <dlg@openbsd.org>
@@ -355,18 +355,18 @@ mpi_attach(struct mpi_softc *sc)
 	}
 #endif /* NBIO > 0 */
 
-	/* we should be good to go now, attach scsibus */
-	sc->sc_link.adapter = &mpi_switch;
-	sc->sc_link.adapter_softc = sc;
-	sc->sc_link.adapter_target = sc->sc_target;
-	sc->sc_link.adapter_buswidth = sc->sc_buswidth;
-	sc->sc_link.openings = MAX(sc->sc_maxcmds / sc->sc_buswidth, 16);
-	sc->sc_link.pool = &sc->sc_iopool;
+	saa.saa_adapter = &mpi_switch;
+	saa.saa_adapter_softc = sc;
+	saa.saa_adapter_target = sc->sc_target;
+	saa.saa_adapter_buswidth = sc->sc_buswidth;
+	saa.saa_luns = 8;
+	saa.saa_openings = MAX(sc->sc_maxcmds / sc->sc_buswidth, 16);
+	saa.saa_pool = &sc->sc_iopool;
+	saa.saa_wwpn = sc->sc_port_wwn;
+	saa.saa_wwnn = sc->sc_node_wwn;
+	saa.saa_quirks = saa.saa_flags = 0;
 
-	saa.saa_sc_link = &sc->sc_link;
-
-	/* config_found() returns the scsibus attached to us */
-	sc->sc_scsibus = (struct scsibus_softc *) config_found(&sc->sc_dev,
+	sc->sc_scsibus = (struct scsibus_softc *)config_found(&sc->sc_dev,
 	    &saa, scsiprint);
 
 	/* do domain validation */
@@ -874,8 +874,8 @@ mpi_cfg_fc(struct mpi_softc *sc)
 		return (1);
 	}
 
-	sc->sc_link.port_wwn = letoh64(pg0.wwpn);
-	sc->sc_link.node_wwn = letoh64(pg0.wwnn);
+	sc->sc_port_wwn = letoh64(pg0.wwpn);
+	sc->sc_node_wwn = letoh64(pg0.wwnn);
 
 	/* configure port config more to our liking */
 	if (mpi_cfg_header(sc, MPI_CONFIG_REQ_PAGE_TYPE_FC_PORT, 1, 0,
@@ -1297,7 +1297,7 @@ void
 mpi_scsi_cmd(struct scsi_xfer *xs)
 {
 	struct scsi_link		*link = xs->sc_link;
-	struct mpi_softc		*sc = link->adapter_softc;
+	struct mpi_softc		*sc = link->bus->sb_adapter_softc;
 	struct mpi_ccb			*ccb;
 	struct mpi_ccb_bundle		*mcb;
 	struct mpi_msg_scsi_io		*io;
@@ -1602,7 +1602,7 @@ mpi_load_xs(struct mpi_ccb *ccb)
 int
 mpi_scsi_probe_virtual(struct scsi_link *link)
 {
-	struct mpi_softc		*sc = link->adapter_softc;
+	struct mpi_softc		*sc = link->bus->sb_adapter_softc;
 	struct mpi_cfg_hdr		hdr;
 	struct mpi_cfg_raid_vol_pg0	*rp0;
 	int				len;
@@ -1635,7 +1635,7 @@ mpi_scsi_probe_virtual(struct scsi_link *link)
 int
 mpi_scsi_probe(struct scsi_link *link)
 {
-	struct mpi_softc		*sc = link->adapter_softc;
+	struct mpi_softc		*sc = link->bus->sb_adapter_softc;
 	struct mpi_ecfg_hdr		ehdr;
 	struct mpi_cfg_sas_dev_pg0	pg0;
 	u_int32_t			address;
@@ -2956,7 +2956,7 @@ mpi_req_cfg_page(struct mpi_softc *sc, u_int32_t address, int flags,
 int
 mpi_scsi_ioctl(struct scsi_link *link, u_long cmd, caddr_t addr, int flag)
 {
-	struct mpi_softc	*sc = (struct mpi_softc *)link->adapter_softc;
+	struct mpi_softc	*sc = link->bus->sb_adapter_softc;
 
 	DNPRINTF(MPI_D_IOCTL, "%s: mpi_scsi_ioctl\n", DEVNAME(sc));
 
@@ -2971,7 +2971,7 @@ mpi_scsi_ioctl(struct scsi_link *link, u_long cmd, caddr_t addr, int flag)
 
 	default:
 		if (sc->sc_ioctl)
-			return (sc->sc_ioctl(link->adapter_softc, cmd, addr));
+			return (sc->sc_ioctl(&sc->sc_dev, cmd, addr));
 
 		break;
 	}
@@ -2982,7 +2982,7 @@ mpi_scsi_ioctl(struct scsi_link *link, u_long cmd, caddr_t addr, int flag)
 int
 mpi_ioctl_cache(struct scsi_link *link, u_long cmd, struct dk_cache *dc)
 {
-	struct mpi_softc	*sc = (struct mpi_softc *)link->adapter_softc;
+	struct mpi_softc	*sc = link->bus->sb_adapter_softc;
 	struct mpi_ccb		*ccb;
 	int			len, rv;
 	struct mpi_cfg_hdr	hdr;

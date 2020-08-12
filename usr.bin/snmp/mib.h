@@ -1,4 +1,4 @@
-/*	$OpenBSD: mib.h,v 1.1 2019/08/09 06:17:59 martijn Exp $	*/
+/*	$OpenBSD: mib.h,v 1.7 2020/08/08 14:01:31 martijn Exp $	*/
 
 /*
  * Copyright (c) 2007, 2008 Reyk Floeter <reyk@openbsd.org>
@@ -31,7 +31,8 @@
  * - optional: write the implementation in mib.c
  */
 
-/* From the SNMPv2-SMI MIB */
+#define MIB_ccitt			0
+/* SNMPv2-SMI MIB */
 #define MIB_iso				1
 #define MIB_org				MIB_iso, 3
 #define MIB_dod				MIB_org, 6
@@ -39,10 +40,23 @@
 #define MIB_directory			MIB_internet, 1
 #define MIB_mgmt			MIB_internet, 2
 #define MIB_mib_2			MIB_mgmt, 1	/* XXX mib-2 */
+#define MIB_transmission		MIB_mib_2, 10
+#define MIB_experimental		MIB_internet, 3
+#define MIB_private			MIB_internet, 4
+#define MIB_enterprises			MIB_private, 1
+#define MIB_security			MIB_internet, 5
+#define MIB_snmpV2			MIB_internet, 6
+#define MIB_snmpDomains			MIB_snmpV2, 1
+#define MIB_snmpProxys			MIB_snmpV2, 2
+#define MIB_snmpModules			MIB_snmpV2, 3
+#define MIB_zeroDotZero			0, 0
+
+/* SNMPv2-MIB */
+#define MIB_snmpMIB			MIB_snmpModules, 1
+#define MIB_snmpMIBObjects		MIB_snmpMIB, 1
 #define MIB_system			MIB_mib_2, 1
-#define OIDIDX_system			7
 #define MIB_sysDescr			MIB_system, 1
-#define MIB_sysOID			MIB_system, 2
+#define MIB_sysObjectID			MIB_system, 2
 #define MIB_sysUpTime			MIB_system, 3
 #define MIB_sysContact			MIB_system, 4
 #define MIB_sysName			MIB_system, 5
@@ -51,21 +65,41 @@
 #define MIB_sysORLastChange		MIB_system, 8
 #define MIB_sysORTable			MIB_system, 9
 #define MIB_sysOREntry			MIB_sysORTable, 1
-#define OIDIDX_sysOR			9
-#define OIDIDX_sysOREntry		10
 #define MIB_sysORIndex			MIB_sysOREntry, 1
 #define MIB_sysORID			MIB_sysOREntry, 2
 #define MIB_sysORDescr			MIB_sysOREntry, 3
 #define MIB_sysORUpTime			MIB_sysOREntry, 4
-#define MIB_transmission		MIB_mib_2, 10
 #define MIB_snmp			MIB_mib_2, 11
-#define OIDIDX_snmp			7
 #define MIB_snmpInPkts			MIB_snmp, 1
-#define MIB_snmpOutPkts			MIB_snmp, 2
 #define MIB_snmpInBadVersions		MIB_snmp, 3
 #define MIB_snmpInBadCommunityNames	MIB_snmp, 4
 #define MIB_snmpInBadCommunityUses	MIB_snmp, 5
 #define MIB_snmpInASNParseErrs		MIB_snmp, 6
+#define MIB_snmpEnableAuthenTraps	MIB_snmp, 30
+#define MIB_snmpSilentDrops		MIB_snmp, 31
+#define MIB_snmpProxyDrops		MIB_snmp, 32
+#define MIB_snmpTrap			MIB_snmpMIBObjects, 4
+#define MIB_snmpTrapOID			MIB_snmpTrap, 1
+#define MIB_snmpTrapEnterprise		MIB_snmpTrap, 3
+#define MIB_snmpTraps			MIB_snmpMIBObjects, 5
+#define MIB_coldStart			MIB_snmpTraps, 1
+#define MIB_warmStart			MIB_snmpTraps, 2
+#define MIB_authenticationFailure	MIB_snmpTraps, 5
+#define MIB_snmpSet			MIB_snmpMIBObjects, 6
+#define MIB_snmpSetSerialNo		MIB_snmpSet, 1
+#define MIB_snmpMIBConformance		MIB_snmpMIB, 2
+#define MIB_snmpMIBCompliances		MIB_snmpMIBConformance, 1
+#define MIB_snmpMIBGroups		MIB_snmpMIBConformance, 2
+#define MIB_snmpBasicCompliance		MIB_snmpMIBCompliances, 2
+#define MIB_snmpBasicComplianceRev2	MIB_snmpMIBCompliances, 3
+#define MIB_snmpGroup			MIB_snmpMIBGroups, 8
+#define MIB_snmpCommunityGroup		MIB_snmpMIBGroups, 9
+#define MIB_snmpSetGroup		MIB_snmpMIBGroups, 5
+#define MIB_systemGroup			MIB_snmpMIBGroups, 6
+#define MIB_snmpBasicNotificationsGroup	MIB_snmpMIBGroups, 7
+#define MIB_snmpWarmStartNotificationGroup MIB_snmpMIBGroups, 11
+#define MIB_snmpNotificationGroup	MIB_snmpMIBGroups, 12
+#define MIB_snmpOutPkts			MIB_snmp, 2
 #define MIB_snmpInTooBigs		MIB_snmp, 8
 #define MIB_snmpInNoSuchNames		MIB_snmp, 9
 #define MIB_snmpInBadValues		MIB_snmp, 10
@@ -87,55 +121,73 @@
 #define MIB_snmpOutSetRequests		MIB_snmp, 27
 #define MIB_snmpOutGetResponses		MIB_snmp, 28
 #define MIB_snmpOutTraps		MIB_snmp, 29
-#define MIB_snmpEnableAuthenTraps	MIB_snmp, 30
-#define MIB_snmpSilentDrops		MIB_snmp, 31
-#define MIB_snmpProxyDrops		MIB_snmp, 32
-#define MIB_experimental		MIB_internet, 3
-#define MIB_private			MIB_internet, 4
-#define MIB_enterprises			MIB_private, 1
-#define MIB_security			MIB_internet, 5
-#define MIB_snmpV2			MIB_internet, 6
-#define MIB_snmpDomains			MIB_snmpV2, 1
-#define MIB_snmpProxies			MIB_snmpV2, 2
-#define MIB_snmpModules			MIB_snmpV2, 3
-#define MIB_snmpMIB			MIB_snmpModules, 1
-#define MIB_snmpMIBObjects		MIB_snmpMIB, 1
-#define MIB_snmpTrap			MIB_snmpMIBObjects, 4
-#define MIB_snmpTrapOID			MIB_snmpTrap, 1
-#define MIB_snmpTrapEnterprise		MIB_snmpTrap, 3
-#define MIB_snmpTraps			MIB_snmpMIBObjects, 5
-#define MIB_coldStart			MIB_snmpTraps, 1
-#define MIB_warmStart			MIB_snmpTraps, 2
+#define MIB_snmpObsoleteGroup		MIB_snmpMIBGroups, 10
+
 #define MIB_linkDown			MIB_snmpTraps, 3
 #define MIB_linkUp			MIB_snmpTraps, 4
-#define MIB_authenticationFailure	MIB_snmpTraps, 5
 #define MIB_egpNeighborLoss		MIB_snmpTraps, 6
 
-/* SNMP-USER-BASED-SM-MIB */
-#define MIB_framework			MIB_snmpModules, 10
-#define MIB_frameworkObjects		MIB_framework, 2
-#define OIDIDX_snmpEngine		9
-#define MIB_snmpEngine			MIB_frameworkObjects, 1
+/* SNMP-FRAMEWORK-MIB */
+#define MIB_snmpFrameworkMIB		MIB_snmpModules, 10
+#define MIB_snmpFrameworkAdmin		MIB_snmpFrameworkMIB, 1
+#define MIB_snmpFrameworkMIBObjects	MIB_snmpFrameworkMIB, 2
+#define MIB_snmpFrameworkMIBConformance	MIB_snmpFrameworkMIB, 3
+#define MIB_snmpEngine			MIB_snmpFrameworkMIBObjects, 1
 #define MIB_snmpEngineID		MIB_snmpEngine, 1
 #define MIB_snmpEngineBoots		MIB_snmpEngine, 2
 #define MIB_snmpEngineTime		MIB_snmpEngine, 3
-#define MIB_snmpEngineMaxMsgSize	MIB_snmpEngine, 4
-#define MIB_usm				MIB_snmpModules, 15
-#define MIB_usmObjects			MIB_usm, 1
-#define MIB_usmStats			MIB_usmObjects, 1
-#define OIDIDX_usmStats			9
-#define OIDVAL_usmErrSecLevel		1
-#define OIDVAL_usmErrTimeWindow		2
-#define OIDVAL_usmErrUserName		3
-#define OIDVAL_usmErrEngineId		4
-#define OIDVAL_usmErrDigest		5
-#define OIDVAL_usmErrDecrypt		6
-#define MIB_usmStatsUnsupportedSecLevels MIB_usmStats, OIDVAL_usmErrSecLevel
-#define MIB_usmStatsNotInTimeWindow	MIB_usmStats, OIDVAL_usmErrTimeWindow
-#define MIB_usmStatsUnknownUserNames	MIB_usmStats, OIDVAL_usmErrUserName
-#define MIB_usmStatsUnknownEngineId	MIB_usmStats, OIDVAL_usmErrEngineId
-#define MIB_usmStatsWrongDigests	MIB_usmStats, OIDVAL_usmErrDigest
-#define MIB_usmStatsDecryptionErrors	MIB_usmStats, OIDVAL_usmErrDecrypt
+#define MIB_snmpEngineMaxMessageSize	MIB_snmpEngine, 4
+#define MIB_snmpAuthProtocols		MIB_snmpFrameworkAdmin, 1
+#define MIB_snmpPrivProtocols		MIB_snmpFrameworkAdmin, 2
+#define MIB_snmpFrameworkMIBCompliances	MIB_snmpFrameworkMIBConformance, 1
+#define MIB_snmpFrameworkMIBGroups	MIB_snmpFrameworkMIBConformance, 2
+
+/* SNMP-USER-BASED-SM-MIB */
+#define MIB_snmpUsmMIB			MIB_snmpModules, 15
+#define MIB_usmMIBObjects		MIB_snmpUsmMIB, 1
+#define MIB_usmMIBConformance		MIB_snmpUsmMIB, 2
+#define MIB_usmNoAuthProtocol		MIB_snmpAuthProtocols, 1
+#define MIB_usmHMACMD5AuthProtocol	MIB_snmpAuthProtocols, 2
+#define MIB_usmHMACSHAAuthProtocol	MIB_snmpAuthProtocols, 3
+#define MIB_usmNoPrivProtocol		MIB_snmpPrivProtocols, 1
+#define MIB_usmDESPrivProtocol		MIB_snmpPrivProtocols, 2
+#define MIB_usmStats			MIB_usmMIBObjects, 1
+#define MIB_usmStatsUnsupportedSecLevels MIB_usmStats, 1
+#define MIB_usmStatsNotInTimeWindows	MIB_usmStats, 2
+#define MIB_usmStatsUnknownUserNames	MIB_usmStats, 3
+#define MIB_usmStatsUnknownEngineIDs	MIB_usmStats, 4
+#define MIB_usmStatsWrongDigests	MIB_usmStats, 5
+#define MIB_usmStatsDecryptionErrors	MIB_usmStats, 6
+#define MIB_usmUser			MIB_usmMIBObjects, 2
+#define MIB_usmUserSpinLock		MIB_usmUser, 1
+#define MIB_usmUserTable		MIB_usmUser, 2
+#define MIB_usmUserEntry		MIB_usmUserTable, 1
+#define MIB_usmUserEngineID		MIB_usmUserEntry, 1
+#define MIB_usmUserName			MIB_usmUserEntry, 2
+#define MIB_usmUserSecurityName		MIB_usmUserEntry, 3
+#define MIB_usmUserCloneFrom		MIB_usmUserEntry, 4
+#define MIB_usmUserAuthProtocol		MIB_usmUserEntry, 5
+#define MIB_usmUserAuthKeyChange	MIB_usmUserEntry, 6
+#define MIB_usmUserOwnAuthKeyChange	MIB_usmUserEntry, 7
+#define MIB_usmUserPrivProtocol		MIB_usmUserEntry, 8
+#define MIB_usmUserPrivKeyChange	MIB_usmUserEntry, 9
+#define MIB_usmUserOwnPrivKeyChange	MIB_usmUserEntry, 10
+#define MIB_usmUserPublic		MIB_usmUserEntry, 11
+#define MIB_usmUserStorageType		MIB_usmUserEntry, 12
+#define MIB_usmUserStatus		MIB_usmUserEntry, 13
+#define MIB_usmMIBCompliances		MIB_usmMIBConformance, 1
+#define MIB_usmMIBGroups		MIB_usmMIBConformance, 2
+
+/* SNMP-USM-AES-MIB */
+#define MIB_snmpUsmAesMIB		MIB_snmpModules, 20
+#define MIB_usmAesCfb128Protocol	MIB_snmpPrivProtocols, 4
+
+/* SNMP-USM-HMAC-SHA2-MIB */
+#define MIB_snmpUsmHmacSha2MIB		MIB_mib_2, 235
+#define MIB_usmHMAC128SHA224AuthProtocol MIB_snmpAuthProtocols, 4
+#define MIB_usmHMAC192SHA256AuthProtocol MIB_snmpAuthProtocols, 5
+#define MIB_usmHMAC256SHA384AuthProtocol MIB_snmpAuthProtocols, 6
+#define MIB_usmHMAC384SHA512AuthProtocol MIB_snmpAuthProtocols, 7
 
 /* HOST-RESOURCES-MIB */
 #define MIB_host			MIB_mib_2, 25
@@ -740,6 +792,8 @@
 #define MIB_localTest			MIB_openBSD, 42
 
 #define MIB_TREE			{		\
+	{ MIBDECL(ccitt) },				\
+							\
 	{ MIBDECL(iso) },				\
 	{ MIBDECL(org) },				\
 	{ MIBDECL(dod) },				\
@@ -747,29 +801,66 @@
 	{ MIBDECL(directory) },				\
 	{ MIBDECL(mgmt) },				\
 	{ MIBDECL(mib_2) },				\
+	{ MIBDECL(transmission) },			\
+	{ MIBDECL(experimental) },			\
+	{ MIBDECL(private) },				\
+	{ MIBDECL(enterprises) },			\
+	{ MIBDECL(security) },				\
+	{ MIBDECL(snmpV2) },				\
+	{ MIBDECL(snmpDomains) },			\
+	{ MIBDECL(snmpProxys) },			\
+	{ MIBDECL(snmpModules) },			\
+	{ MIBDECL(zeroDotZero) },			\
+							\
+	{ MIBDECL(snmpMIB) },				\
+	{ MIBDECL(snmpMIBObjects) },			\
 	{ MIBDECL(system) },				\
-	{ MIBDECL(sysDescr) },				\
-	{ MIBDECL(sysOID) },				\
+	{ MIBDECL(sysDescr), "DisplayString" },		\
+	{ MIBDECL(sysObjectID) },			\
 	{ MIBDECL(sysUpTime) },				\
-	{ MIBDECL(sysContact) },			\
-	{ MIBDECL(sysName) },				\
-	{ MIBDECL(sysLocation) },			\
+	{ MIBDECL(sysContact), "DisplayString" },	\
+	{ MIBDECL(sysName), "DisplayString" },		\
+	{ MIBDECL(sysLocation), "DisplayString" },	\
 	{ MIBDECL(sysServices) },			\
 	{ MIBDECL(sysORLastChange) },			\
 	{ MIBDECL(sysORTable) },			\
 	{ MIBDECL(sysOREntry) },			\
 	{ MIBDECL(sysORIndex) },			\
 	{ MIBDECL(sysORID) },				\
-	{ MIBDECL(sysORDescr) },			\
+	{ MIBDECL(sysORDescr), "DisplayString" },	\
 	{ MIBDECL(sysORUpTime) },			\
-	{ MIBDECL(transmission) },			\
 	{ MIBDECL(snmp) },				\
 	{ MIBDECL(snmpInPkts) },			\
-	{ MIBDECL(snmpOutPkts) },			\
 	{ MIBDECL(snmpInBadVersions) },			\
 	{ MIBDECL(snmpInBadCommunityNames) },		\
 	{ MIBDECL(snmpInBadCommunityUses) },		\
 	{ MIBDECL(snmpInASNParseErrs) },		\
+	{ MIBDECL(snmpEnableAuthenTraps) },		\
+	{ MIBDECL(snmpSilentDrops) },			\
+	{ MIBDECL(snmpProxyDrops) },			\
+	{ MIBDECL(snmpTrap) },				\
+	{ MIBDECL(snmpTrapOID) },			\
+	{ MIBDECL(snmpTrapEnterprise) },		\
+	{ MIBDECL(snmpTraps) },				\
+	{ MIBDECL(coldStart) },				\
+	{ MIBDECL(warmStart) },				\
+	{ MIBDECL(authenticationFailure) },		\
+	{ MIBDECL(snmpSet) },				\
+	{ MIBDECL(snmpSetSerialNo) },			\
+	{ MIBDECL(snmpMIBConformance) },		\
+	{ MIBDECL(snmpMIBCompliances) },		\
+	{ MIBDECL(snmpMIBGroups) },			\
+	{ MIBDECL(snmpBasicCompliance) },		\
+	{ MIBDECL(snmpBasicComplianceRev2) },		\
+	{ MIBDECL(snmpGroup) },				\
+	{ MIBDECL(snmpCommunityGroup) },		\
+	{ MIBDECL(snmpSetGroup) },			\
+	{ MIBDECL(systemGroup) },			\
+	{ MIBDECL(snmpBasicNotificationsGroup) },	\
+	{ MIBDECL(snmpWarmStartNotificationGroup) },	\
+	{ MIBDECL(snmpNotificationGroup) },		\
+	{ MIBDECL(snmpSetSerialNo) },			\
+	{ MIBDECL(snmpOutPkts) },			\
 	{ MIBDECL(snmpInTooBigs) },			\
 	{ MIBDECL(snmpInNoSuchNames) },			\
 	{ MIBDECL(snmpInBadValues) },			\
@@ -791,46 +882,68 @@
 	{ MIBDECL(snmpOutSetRequests) },		\
 	{ MIBDECL(snmpOutGetResponses) },		\
 	{ MIBDECL(snmpOutTraps) },			\
-	{ MIBDECL(snmpEnableAuthenTraps) },		\
-	{ MIBDECL(snmpSilentDrops) },			\
-	{ MIBDECL(snmpProxyDrops) },			\
-	{ MIBDECL(experimental) },			\
-	{ MIBDECL(private) },				\
-	{ MIBDECL(enterprises) },			\
-	{ MIBDECL(security) },				\
-	{ MIBDECL(snmpV2) },				\
-	{ MIBDECL(snmpDomains) },			\
-	{ MIBDECL(snmpProxies) },			\
-	{ MIBDECL(snmpModules) },			\
-	{ MIBDECL(snmpMIB) },				\
-	{ MIBDECL(snmpMIBObjects) },			\
-	{ MIBDECL(snmpTrap) },				\
-	{ MIBDECL(snmpTrapOID) },			\
-	{ MIBDECL(snmpTrapEnterprise) },		\
-	{ MIBDECL(snmpTraps) },				\
-	{ MIBDECL(coldStart) },				\
-	{ MIBDECL(warmStart) },				\
+	{ MIBDECL(snmpObsoleteGroup) },			\
+							\
 	{ MIBDECL(linkDown) },				\
 	{ MIBDECL(linkUp) },				\
-	{ MIBDECL(authenticationFailure) },		\
 	{ MIBDECL(egpNeighborLoss) },			\
 							\
-	{ MIBDECL(framework) },				\
-	{ MIBDECL(frameworkObjects) },			\
+	{ MIBDECL(snmpFrameworkMIB) },			\
+	{ MIBDECL(snmpFrameworkAdmin) },		\
+	{ MIBDECL(snmpFrameworkMIBObjects) },		\
+	{ MIBDECL(snmpFrameworkMIBConformance) },	\
 	{ MIBDECL(snmpEngine) },			\
 	{ MIBDECL(snmpEngineID) },			\
 	{ MIBDECL(snmpEngineBoots) },			\
 	{ MIBDECL(snmpEngineTime) },			\
-	{ MIBDECL(snmpEngineMaxMsgSize) },		\
-	{ MIBDECL(usm) },				\
-	{ MIBDECL(usmObjects) },			\
+	{ MIBDECL(snmpEngineMaxMessageSize) },		\
+	{ MIBDECL(snmpAuthProtocols) },			\
+	{ MIBDECL(snmpPrivProtocols) },			\
+	{ MIBDECL(snmpFrameworkMIBCompliances) },	\
+	{ MIBDECL(snmpFrameworkMIBGroups) },		\
+							\
+	{ MIBDECL(snmpUsmMIB) },			\
+	{ MIBDECL(usmMIBObjects) },			\
+	{ MIBDECL(usmMIBConformance) },			\
+	{ MIBDECL(usmNoAuthProtocol) },			\
+	{ MIBDECL(usmHMACMD5AuthProtocol) },		\
+	{ MIBDECL(usmHMACSHAAuthProtocol) },		\
+	{ MIBDECL(usmNoPrivProtocol) },			\
+	{ MIBDECL(usmDESPrivProtocol) },		\
 	{ MIBDECL(usmStats) },				\
-	{ MIBDECL(usmStatsUnsupportedSecLevels) },	\
-	{ MIBDECL(usmStatsNotInTimeWindow) },		\
+	{ MIBDECL(usmStatsNotInTimeWindows) },		\
 	{ MIBDECL(usmStatsUnknownUserNames) },		\
-	{ MIBDECL(usmStatsUnknownEngineId) },		\
+	{ MIBDECL(usmStatsUnknownEngineIDs) },		\
 	{ MIBDECL(usmStatsWrongDigests) },		\
 	{ MIBDECL(usmStatsDecryptionErrors) },		\
+	{ MIBDECL(usmUser) },				\
+	{ MIBDECL(usmUserSpinLock) },			\
+	{ MIBDECL(usmUserTable) },			\
+	{ MIBDECL(usmUserEntry) },			\
+	{ MIBDECL(usmUserEngineID) },			\
+	{ MIBDECL(usmUserName), "SnmpAdminString" },	\
+	{ MIBDECL(usmUserSecurityName), "SnmpAdminString" }, \
+	{ MIBDECL(usmUserCloneFrom), },			\
+	{ MIBDECL(usmUserAuthProtocol), },		\
+	{ MIBDECL(usmUserAuthKeyChange), },		\
+	{ MIBDECL(usmUserOwnAuthKeyChange), },		\
+	{ MIBDECL(usmUserPrivProtocol), },		\
+	{ MIBDECL(usmUserPrivKeyChange), },		\
+	{ MIBDECL(usmUserOwnPrivKeyChange), },		\
+	{ MIBDECL(usmUserPublic), },			\
+	{ MIBDECL(usmUserStorageType), },		\
+	{ MIBDECL(usmUserStatus), },			\
+	{ MIBDECL(usmMIBCompliances), },		\
+	{ MIBDECL(usmMIBGroups), },			\
+							\
+	{ MIBDECL(snmpUsmAesMIB), },			\
+	{ MIBDECL(usmAesCfb128Protocol), },		\
+							\
+	{ MIBDECL(snmpUsmHmacSha2MIB), },		\
+	{ MIBDECL(usmHMAC128SHA224AuthProtocol), },	\
+	{ MIBDECL(usmHMAC192SHA256AuthProtocol), },	\
+	{ MIBDECL(usmHMAC256SHA384AuthProtocol), },	\
+	{ MIBDECL(usmHMAC384SHA512AuthProtocol), },	\
 							\
 	{ MIBDECL(host) },				\
 	{ MIBDECL(hrSystem) },				\
@@ -1345,6 +1458,12 @@
 	{ MIBDECL(ipfRouteEntRouteMetric5) },		\
 	{ MIBDECL(ipfRouteEntStatus) },			\
 	{ MIBEND }					\
+}
+
+#define TEXTCONV_TREE {					\
+	{ "SnmpAdminString", "255t", BER_TYPE_OCTETSTRING }, \
+	{ "DisplayString", "255a", BER_TYPE_OCTETSTRING }, \
+	{ NULL, NULL }					\
 }
 
 void	 mib_init(void);

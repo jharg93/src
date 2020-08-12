@@ -1,4 +1,4 @@
-/*	$OpenBSD: st.c,v 1.178 2020/06/30 18:43:37 krw Exp $	*/
+/*	$OpenBSD: st.c,v 1.180 2020/08/11 15:23:57 krw Exp $	*/
 /*	$NetBSD: st.c,v 1.71 1997/02/21 23:03:49 thorpej Exp $	*/
 
 /*
@@ -69,6 +69,7 @@
 #include <sys/vnode.h>
 
 #include <scsi/scsi_all.h>
+#include <scsi/scsi_debug.h>
 #include <scsi/scsi_tape.h>
 #include <scsi/scsiconf.h>
 
@@ -1008,8 +1009,8 @@ stminphys(struct buf *bp)
 		return;
 	link = sc->sc_link;
 
-	if (link->adapter->dev_minphys != NULL)
-		(*link->adapter->dev_minphys)(bp, link);
+	if (link->bus->sb_adapter->dev_minphys != NULL)
+		(*link->bus->sb_adapter->dev_minphys)(bp, link);
 	else
 		minphys(bp);
 

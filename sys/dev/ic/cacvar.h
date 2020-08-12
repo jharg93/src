@@ -1,4 +1,4 @@
-/*	$OpenBSD: cacvar.h,v 1.7 2013/05/30 16:15:02 deraadt Exp $	*/
+/*	$OpenBSD: cacvar.h,v 1.9 2020/07/22 13:16:04 krw Exp $	*/
 /*	$NetBSD: cacvar.h,v 1.7 2000/10/19 14:28:47 ad Exp $	*/
 
 /*-
@@ -100,7 +100,7 @@ struct cac_softc {
 	bus_dmamap_t		sc_dmamap;
 	int			sc_nunits;
 	void			*sc_ih;
-	struct scsi_link	sc_link;
+	struct scsibus_softc	*sc_scsibus;
 	const struct cac_linkage	*sc_cl;
 	caddr_t			sc_ccbs;
 	paddr_t			sc_ccbs_paddr;

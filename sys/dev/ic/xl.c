@@ -1,4 +1,4 @@
-/*	$OpenBSD: xl.c,v 1.133 2020/06/22 02:27:04 dlg Exp $	*/
+/*	$OpenBSD: xl.c,v 1.135 2020/07/10 13:26:37 patrick Exp $	*/
 
 /*
  * Copyright (c) 1997, 1998, 1999
@@ -1467,7 +1467,7 @@ xl_intr(void *arg)
 		}
 	}
 
-	if (!IFQ_IS_EMPTY(&ifp->if_snd))
+	if (!ifq_empty(&ifp->if_snd))
 		(*ifp->if_start)(ifp);
 
 	return (claimed);
@@ -1664,7 +1664,7 @@ xl_start(struct ifnet *ifp)
 	start_tx = sc->xl_cdata.xl_tx_free;
 
 	while (sc->xl_cdata.xl_tx_free != NULL) {
-		IFQ_DEQUEUE(&ifp->if_snd, m_head);
+		m_head = ifq_dequeue(&ifp->if_snd);
 		if (m_head == NULL)
 			break;
 
@@ -1793,7 +1793,7 @@ xl_start_90xB(struct ifnet *ifp)
 			break;
 		}
 
-		IFQ_DEQUEUE(&ifp->if_snd, m_head);
+		m_head = ifq_dequeue(&ifp->if_snd);
 		if (m_head == NULL)
 			break;
 
@@ -2234,7 +2234,7 @@ xl_watchdog(struct ifnet *ifp)
 	xl_rxeof(sc);
 	xl_init(sc);
 
-	if (!IFQ_IS_EMPTY(&ifp->if_snd))
+	if (!ifq_empty(&ifp->if_snd))
 		(*ifp->if_start)(ifp);
 }
 
@@ -2462,7 +2462,7 @@ xl_attach(struct xl_softc *sc)
 		ifp->if_start = xl_start;
 	ifp->if_watchdog = xl_watchdog;
 	ifp->if_baudrate = 10000000;
-	IFQ_SET_MAXLEN(&ifp->if_snd, XL_TX_LIST_CNT - 1);
+	ifq_set_maxlen(&ifp->if_snd, XL_TX_LIST_CNT - 1);
 	memcpy(ifp->if_xname, sc->sc_dev.dv_xname, IFNAMSIZ);
 
 	ifp->if_capabilities = IFCAP_VLAN_MTU;

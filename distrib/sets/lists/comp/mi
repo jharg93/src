@@ -868,6 +868,7 @@
 ./usr/include/dev/wsfont/spleen16x32.h
 ./usr/include/dev/wsfont/spleen32x64.h
 ./usr/include/dev/wsfont/spleen5x8.h
+./usr/include/dev/wsfont/spleen6x12.h
 ./usr/include/dev/wsfont/spleen8x16.h
 ./usr/include/dev/wsfont/wsfont.h
 ./usr/include/dev/x86emu
@@ -1950,6 +1951,7 @@
 ./usr/share/man/man3/OPENSSL_sk_new.3
 ./usr/share/man/man3/OpenSSL_add_all_algorithms.3
 ./usr/share/man/man3/PEM_ASN1_read.3
+./usr/share/man/man3/PEM_X509_INFO_read.3
 ./usr/share/man/man3/PEM_bytes_read_bio.3
 ./usr/share/man/man3/PEM_read.3
 ./usr/share/man/man3/PEM_read_SSL_SESSION.3
@@ -2420,6 +2422,7 @@
 ./usr/share/man/man3/fido_cred_verify.3
 ./usr/share/man/man3/fido_credman_metadata_new.3
 ./usr/share/man/man3/fido_dev_get_assert.3
+./usr/share/man/man3/fido_dev_get_touch_begin.3
 ./usr/share/man/man3/fido_dev_info_manifest.3
 ./usr/share/man/man3/fido_dev_make_cred.3
 ./usr/share/man/man3/fido_dev_open.3
@@ -3037,6 +3040,7 @@
 ./usr/share/man/man9/intr_barrier.9
 ./usr/share/man/man9/intrmap_create.9
 ./usr/share/man/man9/intro.9
+./usr/share/man/man9/kcov_remote_register.9
 ./usr/share/man/man9/km_alloc.9
 ./usr/share/man/man9/knote.9
 ./usr/share/man/man9/kstat_create.9

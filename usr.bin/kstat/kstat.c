@@ -1,4 +1,4 @@
-/* $OpenBSD: kstat.c,v 1.1 2020/07/06 07:09:50 dlg Exp $ */
+/* $OpenBSD: kstat.c,v 1.5 2020/08/11 01:07:47 dlg Exp $ */
 
 /*
  * Copyright (c) 2020 David Gwynne <dlg@openbsd.org>
@@ -20,7 +20,9 @@
 #include <stddef.h>
 #include <string.h>
 #include <inttypes.h>
+#include <fnmatch.h>
 #include <fcntl.h>
+#include <unistd.h>
 #include <errno.h>
 #include <err.h>
 #include <vis.h>
@@ -28,44 +30,42 @@
 #include <sys/tree.h>
 #include <sys/ioctl.h>
 #include <sys/time.h>
+#include <sys/queue.h>
 
 #include <sys/kstat.h>
 
 #ifndef roundup
-#define roundup(x, y)   ((((x)+((y)-1))/(y))*(y))
+#define roundup(x, y)		((((x)+((y)-1))/(y))*(y))
 #endif
+
+#ifndef nitems
+#define nitems(_a)		(sizeof((_a)) / sizeof((_a)[0]))
+#endif
+
+#ifndef ISSET
+#define ISSET(_i, _m)		((_i) & (_m))
+#endif
+
+#ifndef SET
+#define SET(_i, _m)		((_i) |= (_m))
+#endif
+
+#define str_is_empty(_str)	(*(_str) == '\0')
 
 #define DEV_KSTAT "/dev/kstat"
 
-static void	kstat_list(int, unsigned int);
+struct kstat_filter {
+	TAILQ_ENTRY(kstat_filter)	 kf_entry;
+	const char			*kf_provider;
+	const char			*kf_name;
+	unsigned int			 kf_flags;
+#define KSTAT_FILTER_F_INST			(1 << 0)
+#define KSTAT_FILTER_F_UNIT			(1 << 1)
+	unsigned int			 kf_instance;
+	unsigned int			 kf_unit;
+};
 
-#if 0
-__dead static void
-usage(void)
-{
-	extern char *__progname;
-	fprintf(stderr, "usage: %s\n", __progname);
-	exit(1);
-}
-#endif
-
-int
-main(int argc, char *argv[])
-{
-	unsigned int version;
-	int fd;
-
-	fd = open(DEV_KSTAT, O_RDONLY);
-	if (fd == -1)
-		err(1, "%s", DEV_KSTAT);
-
-	if (ioctl(fd, KSTATIOC_VERSION, &version) == -1)
-		err(1, "kstat version");
-
-	kstat_list(fd, version);
-
-	return (0);
-}
+TAILQ_HEAD(kstat_filters, kstat_filter);
 
 struct kstat_entry {
 	struct kstat_req	kstat;
@@ -103,6 +103,181 @@ kstat_cmp(const struct kstat_entry *ea, const struct kstat_entry *eb)
 
 RBT_PROTOTYPE(kstat_tree, kstat_entry, entry, kstat_cmp);
 RBT_GENERATE(kstat_tree, kstat_entry, entry, kstat_cmp);
+
+static struct kstat_filter *
+		kstat_filter_parse(char *);
+static int	kstat_filter_entry(struct kstat_filters *,
+		    const struct kstat_req *);
+
+static void	kstat_list(struct kstat_tree *, int, unsigned int,
+		    struct kstat_filters *);
+static void	kstat_print(struct kstat_tree *);
+static void	kstat_read(struct kstat_tree *, int);
+
+__dead static void
+usage(void)
+{
+	extern char *__progname;
+
+	fprintf(stderr, "usage: %s [-w wait] "
+	    "[name|provider:0:name:unit ...]\n", __progname);
+
+	exit(1);
+}
+
+int
+main(int argc, char *argv[])
+{
+	struct kstat_filters kfs = TAILQ_HEAD_INITIALIZER(kfs);
+	struct kstat_tree kt = RBT_INITIALIZER();
+	unsigned int version;
+	int fd;
+	const char *errstr;
+	int ch;
+	struct timespec interval = { 0, 0 };
+	int i;
+
+	while ((ch = getopt(argc, argv, "w:")) != -1) {
+		switch (ch) {
+		case 'w':
+			interval.tv_sec = strtonum(optarg, 1, 100000000,
+			    &errstr);
+			if (errstr != NULL)
+				errx(1, "wait %s: %s", optarg, errstr);
+			break;
+		default:
+			usage();
+		}
+	}
+
+	argc -= optind;
+	argv += optind;
+
+	for (i = 0; i < argc; i++) {
+		struct kstat_filter *kf = kstat_filter_parse(argv[i]);
+		TAILQ_INSERT_TAIL(&kfs, kf, kf_entry);
+	}
+
+	fd = open(DEV_KSTAT, O_RDONLY);
+	if (fd == -1)
+		err(1, "%s", DEV_KSTAT);
+
+	if (ioctl(fd, KSTATIOC_VERSION, &version) == -1)
+		err(1, "kstat version");
+
+	kstat_list(&kt, fd, version, &kfs);
+	kstat_print(&kt);
+
+	if (interval.tv_sec == 0)
+		return (0);
+
+	for (;;) {
+		nanosleep(&interval, NULL);
+
+		kstat_read(&kt, fd);
+		kstat_print(&kt);
+	}
+
+	return (0);
+}
+
+static struct kstat_filter *
+kstat_filter_parse(char *arg)
+{
+	struct kstat_filter *kf;
+	const char *errstr;
+	char *argv[4];
+	size_t argc;
+
+	for (argc = 0; argc < nitems(argv); argc++) {
+		char *s = strsep(&arg, ":");
+		if (s == NULL)
+			break;
+
+		argv[argc] = s;
+	}
+	if (arg != NULL)
+		usage();
+
+	kf = malloc(sizeof(*kf));
+	if (kf == NULL)
+		err(1, NULL);
+
+	memset(kf, 0, sizeof(*kf));
+
+	switch (argc) {
+	case 1:
+		if (str_is_empty(argv[0]))
+			errx(1, "empty name");
+
+		kf->kf_name = argv[0];
+		break;
+	case 4:
+		if (!str_is_empty(argv[0]))
+			kf->kf_provider = argv[0];
+		if (!str_is_empty(argv[1])) {
+			kf->kf_instance =
+			    strtonum(argv[1], 0, 0xffffffffU, &errstr);
+			if (errstr != NULL) {
+				errx(1, "%s:%s:%s:%s: instance %s: %s",
+				    argv[0], argv[1], argv[2], argv[3],
+				    argv[1], errstr);
+			}
+			SET(kf->kf_flags, KSTAT_FILTER_F_INST);
+		}
+		if (!str_is_empty(argv[2]))
+			kf->kf_name = argv[2];
+		if (!str_is_empty(argv[3])) {
+			kf->kf_unit =
+			    strtonum(argv[3], 0, 0xffffffffU, &errstr);
+			if (errstr != NULL) {
+				errx(1, "%s:%s:%s:%s: instance %s: %s",
+				    argv[0], argv[1], argv[2], argv[3],
+				    argv[1], errstr);
+			}
+			SET(kf->kf_flags, KSTAT_FILTER_F_INST);
+		}
+		break;
+	default:
+		usage();
+	}
+
+	return (kf);
+}
+
+static int
+kstat_filter_entry(struct kstat_filters *kfs, const struct kstat_req *ksreq)
+{
+	struct kstat_filter *kf;
+
+	if (TAILQ_EMPTY(kfs))
+		return (1);
+
+	TAILQ_FOREACH(kf, kfs, kf_entry) {
+		if (kf->kf_provider != NULL) {
+			if (fnmatch(kf->kf_provider, ksreq->ks_provider,
+			    FNM_NOESCAPE | FNM_LEADING_DIR) == FNM_NOMATCH)
+				continue;
+		}
+		if (ISSET(kf->kf_flags, KSTAT_FILTER_F_INST)) {
+			if (kf->kf_instance != ksreq->ks_instance)
+				continue;
+		}
+		if (kf->kf_name != NULL) {
+			if (fnmatch(kf->kf_name, ksreq->ks_name,
+			    FNM_NOESCAPE | FNM_LEADING_DIR) == FNM_NOMATCH)
+				continue;
+		}
+		if (ISSET(kf->kf_flags, KSTAT_FILTER_F_UNIT)) {
+			if (kf->kf_unit != ksreq->ks_unit)
+				continue;
+		}
+
+		return (1);
+	}
+
+	return (0);
+}
 
 static int
 printable(int ch)
@@ -265,13 +440,13 @@ kstat_kv(const void *d, ssize_t len)
 }
 
 static void
-kstat_list(int fd, unsigned int version)
+kstat_list(struct kstat_tree *kt, int fd, unsigned int version,
+    struct kstat_filters *kfs)
 {
 	struct kstat_entry *kse;
 	struct kstat_req *ksreq;
 	size_t len;
 	uint64_t id = 0;
-	struct kstat_tree kstat_tree = RBT_INITIALIZER();
 
 	for (;;) {
 		kse = malloc(sizeof(*kse));
@@ -296,8 +471,20 @@ kstat_list(int fd, unsigned int version)
 			}
 
 			kse->serrno = errno;
-			goto next;
+		} else
+			id = ksreq->ks_id;
+
+		if (!kstat_filter_entry(kfs, ksreq)) {
+			free(ksreq->ks_data);
+			free(kse);
+			continue;
 		}
+
+		if (RBT_INSERT(kstat_tree, kt, kse) != NULL)
+			errx(1, "duplicate kstat entry");
+
+		if (kse->serrno != 0)
+			continue;
 
 		while (ksreq->ks_datalen > len) {
 			len = ksreq->ks_datalen;
@@ -306,17 +493,18 @@ kstat_list(int fd, unsigned int version)
 				err(1, "data resize (%zu)", len);
 
 			if (ioctl(fd, KSTATIOC_FIND_ID, ksreq) == -1)
-				err(1, "find id %llu", id);
+				err(1, "find id %llu", ksreq->ks_id);
 		}
-
-next:
-		if (RBT_INSERT(kstat_tree, &kstat_tree, kse) != NULL)
-			errx(1, "duplicate kstat entry");
-
-		id = ksreq->ks_id;
 	}
+}
 
-	RBT_FOREACH(kse, kstat_tree, &kstat_tree) {
+static void
+kstat_print(struct kstat_tree *kt)
+{
+	struct kstat_entry *kse;
+	struct kstat_req *ksreq;
+
+	RBT_FOREACH(kse, kstat_tree, kt) {
 		ksreq = &kse->kstat;
 		printf("%s:%u:%s:%u\n",
 		    ksreq->ks_provider, ksreq->ks_instance,
@@ -336,5 +524,18 @@ next:
 			hexdump(ksreq->ks_data, ksreq->ks_datalen);
 			break;
 		}
+	}
+}
+
+static void
+kstat_read(struct kstat_tree *kt, int fd)
+{
+	struct kstat_entry *kse;
+	struct kstat_req *ksreq;
+
+	RBT_FOREACH(kse, kstat_tree, kt) {
+		ksreq = &kse->kstat;
+		if (ioctl(fd, KSTATIOC_FIND_ID, ksreq) == -1)
+			err(1, "update id %llu", ksreq->ks_id);
 	}
 }

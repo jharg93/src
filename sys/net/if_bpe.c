@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_bpe.c,v 1.11 2020/06/24 22:03:43 cheloha Exp $ */
+/*	$OpenBSD: if_bpe.c,v 1.13 2020/07/22 08:38:51 dlg Exp $ */
 /*
  * Copyright (c) 2018 David Gwynne <dlg@openbsd.org>
  *
@@ -97,7 +97,6 @@ RBT_GENERATE(bpe_map, bpe_entry, be_entry, bpe_entry_cmp);
 struct bpe_softc {
 	struct bpe_key		sc_key; /* must be first */
 	struct arpcom		sc_ac;
-	struct ifmedia		sc_media;
 	int			sc_txhprio;
 	int			sc_rxhprio;
 	uint8_t			sc_group[ETHER_ADDR_LEN];
@@ -190,7 +189,7 @@ bpe_clone_create(struct if_clone *ifc, int unit)
 	ifp->if_start = bpe_start;
 	ifp->if_flags = IFF_BROADCAST | IFF_MULTICAST;
 	ifp->if_xflags = IFXF_CLONED;
-	IFQ_SET_MAXLEN(&ifp->if_snd, IFQ_MAXLEN);
+	ifq_set_maxlen(&ifp->if_snd, IFQ_MAXLEN);
 	ether_fakeaddr(ifp);
 
 	if_counters_alloc(ifp);
@@ -210,7 +209,6 @@ bpe_clone_destroy(struct ifnet *ifp)
 		bpe_down(sc);
 	NET_UNLOCK();
 
-	ifmedia_delete_instance(&sc->sc_media, IFM_INST_ANY);
 	ether_ifdetach(ifp);
 	if_detach(ifp);
 

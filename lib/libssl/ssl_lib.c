@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_lib.c,v 1.218 2020/07/07 19:31:11 jsing Exp $ */
+/* $OpenBSD: ssl_lib.c,v 1.220 2020/08/11 18:39:40 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -241,7 +241,7 @@ SSL_CTX_set_ssl_version(SSL_CTX *ctx, const SSL_METHOD *meth)
 SSL *
 SSL_new(SSL_CTX *ctx)
 {
-	SSL	*s;
+	SSL *s;
 
 	if (ctx == NULL) {
 		SSLerrorx(SSL_R_NULL_SSL_CTX);
@@ -252,15 +252,10 @@ SSL_new(SSL_CTX *ctx)
 		return (NULL);
 	}
 
-	if ((s = calloc(1, sizeof(*s))) == NULL) {
-		SSLerrorx(ERR_R_MALLOC_FAILURE);
-		return (NULL);
-	}
-	if ((s->internal = calloc(1, sizeof(*s->internal))) == NULL) {
-		free(s);
-		SSLerrorx(ERR_R_MALLOC_FAILURE);
-		return (NULL);
-	}
+	if ((s = calloc(1, sizeof(*s))) == NULL)
+		goto err;
+	if ((s->internal = calloc(1, sizeof(*s->internal))) == NULL)
+		goto err;
 
 	s->internal->min_version = ctx->internal->min_version;
 	s->internal->max_version = ctx->internal->max_version;
@@ -2225,15 +2220,6 @@ SSL_set_ssl_method(SSL *s, const SSL_METHOD *meth)
 			s->method = meth;
 			ret = s->method->internal->ssl_new(s);
 		}
-
-		/*
-		 * XXX - reset the client max version to that of the incoming
-		 * method, otherwise a caller that uses a TLS_method() and then
-		 * sets with TLS_client_method() cannot do TLSv1.3.
-		 */
-		if (meth->internal->max_version == TLS1_3_VERSION &&
-		    meth->internal->ssl_connect != NULL)
-			s->internal->max_version = meth->internal->max_version;
 
 		if (conn == 1)
 			s->internal->handshake_func = meth->internal->ssl_connect;

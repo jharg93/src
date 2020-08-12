@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_rsu.c,v 1.45 2019/09/12 12:55:07 stsp Exp $	*/
+/*	$OpenBSD: if_rsu.c,v 1.47 2020/07/31 10:49:32 mglocker Exp $	*/
 
 /*-
  * Copyright (c) 2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -381,7 +381,6 @@ rsu_close_pipes(struct rsu_softc *sc)
 	for (i = 0; i < sc->npipes; i++) {
 		if (sc->pipe[i] == NULL)
 			continue;
-		usbd_abort_pipe(sc->pipe[i]);
 		usbd_close_pipe(sc->pipe[i]);
 	}
 }
@@ -1640,7 +1639,7 @@ rsu_start(struct ifnet *ifp)
 			break;
 
 		/* Encapsulate and send data frames. */
-		IFQ_DEQUEUE(&ifp->if_snd, m);
+		m = ifq_dequeue(&ifp->if_snd);
 		if (m == NULL)
 			break;
 #if NBPFILTER > 0

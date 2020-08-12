@@ -327,8 +327,8 @@ struct vppt {
 };
 TAILQ_HEAD(,vppt) vppts = TAILQ_HEAD_INITIALIZER(vppts);
 
-void vmm_mapintr(pci_chipset_tag_t pc, struct pci_attach_args *pa)
-{
+void
+vmm_mapintr(pci_chipset_tag_t pc, struct pci_attach_args *pa) {
 	int bus, dev, fun;
 	struct vppt *ppt;
 
@@ -351,7 +351,8 @@ void vmm_mapintr(pci_chipset_tag_t pc, struct pci_attach_args *pa)
 	TAILQ_INSERT_TAIL(&vppts, ppt, next);
 }
 
-int vm_pciio(struct vm_pciio *ptd)
+int
+vm_pciio(struct vm_pciio *ptd)
 {
 	pci_chipset_tag_t pc = NULL;
 	pcitag_t tag;
@@ -372,7 +373,8 @@ int vm_pciio(struct vm_pciio *ptd)
 }
 
 /* Probably should pre-register bus_space_map/bus_space_read_xx? */
-int vm_pio(struct vm_pio *pio)
+int
+vm_pio(struct vm_pio *pio)
 {
 	bus_space_tag_t iot;
 	bus_space_handle_t ioh;
@@ -458,7 +460,8 @@ int vm_pio(struct vm_pio *pio)
 
 int vmm_intr(void *arg);
 
-int vmm_intr(void *arg)
+int
+vmm_intr(void *arg)
 {
 	struct vppt *ppt = arg;		
 
@@ -466,7 +469,8 @@ int vmm_intr(void *arg)
 	return 1;
 }
 
-int vm_getintr(struct vm_getintr *gi)
+int
+vm_getintr(struct vm_getintr *gi)
 {
 	pci_chipset_tag_t pc = NULL;
 	pcitag_t tag;
@@ -482,7 +486,8 @@ int vm_getintr(struct vm_getintr *gi)
 }
 
 /* Get PCI/Bar info */
-int vm_getbar(struct vm_barinfo *bi)
+int
+vm_getbar(struct vm_barinfo *bi)
 {
 	pci_chipset_tag_t pc = NULL;
 	pcitag_t tag;
