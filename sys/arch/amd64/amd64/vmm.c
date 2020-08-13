@@ -49,8 +49,8 @@
 
 void *l1tf_flush_region;
 
-extern void *_iommu_domain(int segment, int bus, int dev, int func, int *id);
-extern void  _iommu_map(void *dom, vaddr_t va, bus_addr_t pa, bus_size_t len);
+extern void *_iommu_domain(int, int, int, int, int *);
+extern void  _iommu_map(void *, vaddr_t, bus_addr_t, bus_size_t);
 
 #ifdef VMM_DEBUG
 #define DPRINTF(x...)	do { printf(x); } while(0)
@@ -121,7 +121,7 @@ void vmm_attach(struct device *, struct device *, void *);
 int vmmopen(dev_t, int, int, struct proc *);
 int vmmioctl(dev_t, u_long, caddr_t, int, struct proc *);
 int vmmclose(dev_t, int, int, struct proc *);
-paddr_t vmmmmap(dev_t dev, off_t off, int prot);
+paddr_t vmmmmap(dev_t, off_t, int);
 int vmm_start(void);
 int vmm_stop(void);
 size_t vm_create_check_mem_ranges(struct vm_create_params *);
@@ -312,11 +312,12 @@ extern struct gate_descriptor *idt;
 #define CR_CLTS		2
 #define CR_LMSW		3
 
-int vm_pciio(struct vm_pciio *ptd);
-int vm_pio(struct vm_pio *pio);
-int vm_getbar(struct vm_barinfo *bi);
-int vm_getintr(struct vm_getintr *mi);
+int vm_pciio(struct vm_pciio *);
+int vm_pio(struct vm_pio *);
+int vm_getbar(struct vm_barinfo *);
+int vm_getintr(struct vm_getintr *);
 
+/* Keep track of interrupts for PCI device */
 struct vppt {
 	pci_chipset_tag_t pc;
 	pcitag_t          tag;
@@ -336,19 +337,23 @@ vmm_mapintr(pci_chipset_tag_t pc, struct pci_attach_args *pa) {
 		if (ppt->pc == pc && ppt->tag == pa->pa_tag)
 			return;
 	}
+
+	/* Add PCI device to list */
 	ppt = malloc(sizeof(*ppt), M_DEVBUF, M_ZERO | M_WAITOK);
 	if (!ppt)
 		return;
+	TAILQ_INSERT_TAIL(&vppts, ppt, next);
+
 	ppt->pc = pc;
 	ppt->tag = pa->pa_tag;
 	pci_decompose_tag(pc, pa->pa_tag, &bus, &dev, &fun);
+	printf("Check Interrupt: %d/%d/%d : %d\n", bus, dev, fun, pa->pa_intrpin);	
+
 	if (pci_intr_map_msi(pa, &ppt->ih) || pci_intr_map(pa, &ppt->ih)) {
 		printf("Couldn't map %d/%d/%d\n", bus, dev, fun);
-		free(ppt, M_DEVBUF, sizeof(*ppt));
 		return;
 	}
 	printf("Mapped %d/%d/%d intr %d/%d\n", bus, dev, fun, ppt->ih.line, ppt->ih.pin);
-	TAILQ_INSERT_TAIL(&vppts, ppt, next);
 }
 
 int
@@ -358,14 +363,14 @@ vm_pciio(struct vm_pciio *ptd)
 	pcitag_t tag;
 
 	if (ptd->reg & 3)
-		return EINVAL;
+		return (EINVAL);
 	tag = pci_make_tag(pc, ptd->bus, ptd->dev, ptd->func);
 	if (ptd->dir == VEI_DIR_OUT) {
 		pci_conf_write(pc, tag, ptd->reg, ptd->val);
 	} else {
 		ptd->val = pci_conf_read(pc, tag, ptd->reg);
 	}
-#if 0
+#if 1
 	printf("pciio: %d.%d.%d %d reg:%.2x %.8x\n",
 		ptd->bus, ptd->dev, ptd->func, ptd->dir, ptd->reg, ptd->val);
 #endif
@@ -390,7 +395,7 @@ vm_pio(struct vm_pio *pio)
 		switch (pio->size) {
 		case 1:
 			bus_space_write_1(iot, ioh, 0, pio->data);
-			break;	
+			break;
 		case 2:
 			bus_space_write_2(iot, ioh, 0, pio->data);
 			break;
@@ -463,7 +468,7 @@ int vmm_intr(void *arg);
 int
 vmm_intr(void *arg)
 {
-	struct vppt *ppt = arg;		
+	struct vppt *ppt = arg;
 
 	ppt->pending++;
 	return 1;
@@ -523,14 +528,14 @@ vm_getbar(struct vm_barinfo *bi)
 			i++;
 			reg += 4;
 		}
-	} 
+	}
 
 	/* don't support if mmio and no domain? */
 	did = 0xdeadcafe;
 	dom = _iommu_domain(0, bi->bus, bi->dev, bi->func, &did);
 	printf("domain is: %p:%x\n", dom, did);
 	if (!dom) {
-		return 0;
+		return (ENODEV);
 	}
 	/* Map DMA */
 	vm = SLIST_FIRST(&vmm_softc->vm_list);
@@ -544,7 +549,7 @@ vm_getbar(struct vm_barinfo *bi)
 				   vm->vm_memranges[i].vmr_gpa,
 				   vm->vm_memranges[i].vmr_size);
 		}
-	}		
+	}
 	/* Setup interrupt */
 	TAILQ_FOREACH(ppt, &vppts, next) {
 		if (ppt->tag == tag) {
@@ -5348,8 +5353,8 @@ svm_handle_exit(struct vcpu *vcpu)
 		break;
 	case SVM_VMEXIT_NPF:
 		ret = svm_handle_np_fault(vcpu);
-		if (ret == EAGAIN)
-			update_rip = 1;
+//		if (ret == EAGAIN)
+//			update_rip = 1;
 		break;
 	case SVM_VMEXIT_CPUID:
 		ret = vmm_handle_cpuid(vcpu);
@@ -5442,8 +5447,8 @@ vmx_handle_exit(struct vcpu *vcpu)
 		break;
 	case VMX_EXIT_EPT_VIOLATION:
 		ret = vmx_handle_np_fault(vcpu);
-		if (ret == EAGAIN)
-			update_rip = 1;
+//		if (ret == EAGAIN)
+//			update_rip = 1;
 		break;
 	case VMX_EXIT_CPUID:
 		ret = vmm_handle_cpuid(vcpu);

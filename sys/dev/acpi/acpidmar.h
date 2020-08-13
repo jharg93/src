@@ -528,7 +528,7 @@ enum {
 #endif
 
 void	acpidmar_pci_hook(pci_chipset_tag_t, struct pci_attach_args *);
-void	dmar_ptmap(bus_dma_tag_t tag, bus_addr_t addr);
+void	dmar_ptmap(bus_dma_tag_t, bus_addr_t);
 void	acpidmar_sw(int);
 
 extern struct	acpidmar_softc *acpidmar_sc;

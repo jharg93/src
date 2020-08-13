@@ -1,3 +1,18 @@
+/*
+ * Copyright (c) 2019 Jordan Hargrave <jordan_hargrave@hotmail.com>
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
 #ifndef __amd_iommu_h__
 #define __amd_iommu_h__
 
@@ -132,14 +147,14 @@
  *  129:132 Interrupt Table Length (IntTabLen)
  *========================*/
 struct ivhd_dte {
-  uint32_t dw0;
-  uint32_t dw1;
-  uint32_t dw2;
-  uint32_t dw3;
-  uint32_t dw4;
-  uint32_t dw5;
-  uint32_t dw6;
-  uint32_t dw7;
+	uint32_t dw0;
+	uint32_t dw1;
+	uint32_t dw2;
+	uint32_t dw3;
+	uint32_t dw4;
+	uint32_t dw5;
+	uint32_t dw6;
+	uint32_t dw7;
 } __packed;
 
 #define DTE_V			(1L << 0)			// dw0
@@ -188,105 +203,115 @@ struct ivhd_dte {
 #define _put64(x,v) *(uint64_t *)(x) = (v)
 
 /* Set Guest CR3 address */
-static inline void dte_set_guest_cr3(struct ivhd_dte *dte, paddr_t paddr)
+static inline void
+dte_set_guest_cr3(struct ivhd_dte *dte, paddr_t paddr)
 {
-  iommu_rmw32(&dte->dw1, DTE_GCR312_MASK, DTE_GCR312_SHIFT, paddr >> 12);
-  iommu_rmw32(&dte->dw2, DTE_GCR315_MASK, DTE_GCR315_SHIFT, paddr >> 15);
-  iommu_rmw32(&dte->dw3, DTE_GCR331_MASK, DTE_GCR331_SHIFT, paddr >> 31);
+	iommu_rmw32(&dte->dw1, DTE_GCR312_MASK, DTE_GCR312_SHIFT, paddr >> 12);
+	iommu_rmw32(&dte->dw2, DTE_GCR315_MASK, DTE_GCR315_SHIFT, paddr >> 15);
+	iommu_rmw32(&dte->dw3, DTE_GCR331_MASK, DTE_GCR331_SHIFT, paddr >> 31);
 }
 
 /* Set Interrupt Remapping Root Pointer */
-static inline void dte_set_interrupt_table_root_ptr(struct ivhd_dte *dte, paddr_t paddr)
+static inline void
+dte_set_interrupt_table_root_ptr(struct ivhd_dte *dte, paddr_t paddr)
 {
-  uint64_t ov = _get64(&dte->dw4);
-  _put64(&dte->dw4, (ov & ~DTE_IRTP_MASK) | (paddr & DTE_IRTP_MASK));
+	uint64_t ov = _get64(&dte->dw4);
+	_put64(&dte->dw4, (ov & ~DTE_IRTP_MASK) | (paddr & DTE_IRTP_MASK));
 }
 
 /* Set Interrupt Remapping Table length */
-static inline void dte_set_interrupt_table_length(struct ivhd_dte *dte, int nEnt)
+static inline void
+dte_set_interrupt_table_length(struct ivhd_dte *dte, int nEnt)
 {
-  iommu_rmw32(&dte->dw4, DTE_INTTABLEN_MASK, DTE_INTTABLEN_SHIFT, nEnt);
+	iommu_rmw32(&dte->dw4, DTE_INTTABLEN_MASK, DTE_INTTABLEN_SHIFT, nEnt);
 }
 
 /* Set Interrupt Remapping Valid */
-static inline void dte_set_interrupt_valid(struct ivhd_dte *dte)
+static inline void
+dte_set_interrupt_valid(struct ivhd_dte *dte)
 {
-  dte->dw4 |= DTE_IV;
+	dte->dw4 |= DTE_IV;
 }
 
 /* Set Domain ID in Device Table Entry */
-static inline void dte_set_domain(struct ivhd_dte *dte, uint16_t did)
+static inline void
+dte_set_domain(struct ivhd_dte *dte, uint16_t did)
 {
-  dte->dw2 = (dte->dw2 & ~DTE_DID_MASK) | (did & DTE_DID_MASK);
+	dte->dw2 = (dte->dw2 & ~DTE_DID_MASK) | (did & DTE_DID_MASK);
 }
 
 /* Set Page Table Pointer for device */
-static inline void dte_set_host_page_table_root_ptr(struct ivhd_dte *dte, paddr_t paddr)
+static inline void
+dte_set_host_page_table_root_ptr(struct ivhd_dte *dte, paddr_t paddr)
 {
-  uint64_t ov;
+	uint64_t ov;
 
-  ov = _get64(&dte->dw0) & ~DTE_HPTRP_MASK;
-  ov |= (paddr & DTE_HPTRP_MASK) | PTE_IW | PTE_IR;
+	ov = _get64(&dte->dw0) & ~DTE_HPTRP_MASK;
+	ov |= (paddr & DTE_HPTRP_MASK) | PTE_IW | PTE_IR;
 
-  _put64(&dte->dw0, ov);
+	_put64(&dte->dw0, ov);
 }
 
 /* Set Page Table Levels Mask */
-static inline void dte_set_mode(struct ivhd_dte *dte, int mode)
+static inline void
+dte_set_mode(struct ivhd_dte *dte, int mode)
 {
-  iommu_rmw32(&dte->dw0, DTE_LEVEL_MASK, DTE_LEVEL_SHIFT, mode);
+	iommu_rmw32(&dte->dw0, DTE_LEVEL_MASK, DTE_LEVEL_SHIFT, mode);
 }
 
-static inline void dte_set_tv(struct ivhd_dte *dte)
+static inline void
+dte_set_tv(struct ivhd_dte *dte)
 {
-  dte->dw0 |= DTE_TV;
+	dte->dw0 |= DTE_TV;
 }
 
 /* Set Device Table Entry valid.
  * Domain/Level/Mode/PageTable should already be set
  */
-static inline void dte_set_valid(struct ivhd_dte *dte)
+static inline void
+dte_set_valid(struct ivhd_dte *dte)
 {
-  dte->dw0 |= DTE_V;
+	dte->dw0 |= DTE_V;
 }
 
 /* Check if Device Table Entry is valid */
-static inline int dte_is_valid(struct ivhd_dte *dte)
+static inline int
+dte_is_valid(struct ivhd_dte *dte)
 {
-  return (dte->dw0 & DTE_V);
+	return (dte->dw0 & DTE_V);
 }
 
 /*=========================================
  * COMMAND
  *=========================================*/
 struct ivhd_command {
-  uint32_t dw0;
-  uint32_t dw1;
-  uint32_t dw2;
-  uint32_t dw3;
+	uint32_t dw0;
+	uint32_t dw1;
+	uint32_t dw2;
+	uint32_t dw3;
 } __packed;
 
 #define CMD_SHIFT 28
 
 enum {
-  COMPLETION_WAIT		= 0x01,
-  INVALIDATE_DEVTAB_ENTRY	= 0x02,
-  INVALIDATE_IOMMU_PAGES	= 0x03,
-  INVALIDATE_IOTLB_PAGES	= 0x04,
-  INVALIDATE_INTERRUPT_TABLE	= 0x05,
-  PREFETCH_IOMMU_PAGES		= 0x06,
-  COMPLETE_PPR_REQUEST		= 0x07,
-  INVALIDATE_IOMMU_ALL		= 0x08,
+	COMPLETION_WAIT			= 0x01,
+	INVALIDATE_DEVTAB_ENTRY		= 0x02,
+	INVALIDATE_IOMMU_PAGES		= 0x03,
+	INVALIDATE_IOTLB_PAGES		= 0x04,
+	INVALIDATE_INTERRUPT_TABLE	= 0x05,
+	PREFETCH_IOMMU_PAGES		= 0x06,
+	COMPLETE_PPR_REQUEST		= 0x07,
+	INVALIDATE_IOMMU_ALL		= 0x08,
 };
 
 /*=========================================
  * EVENT
  *=========================================*/
 struct ivhd_event {
-  uint32_t dw0;
-  uint32_t dw1;
-  uint32_t dw2;  			// address.lo
-  uint32_t dw3;				// address.hi
+	uint32_t dw0;
+	uint32_t dw1;
+	uint32_t dw2;  			// address.lo
+	uint32_t dw3;				// address.hi
 } __packed;
 
 #define EVT_TYPE_SHIFT		28       // dw1.0xF0000000
@@ -300,14 +325,14 @@ struct ivhd_event {
 
 /* IOMMU Fault reasons */
 enum {
-  ILLEGAL_DEV_TABLE_ENTRY	= 0x1,
-  IO_PAGE_FAULT			= 0x2,
-  DEV_TAB_HARDWARE_ERROR	= 0x3,
-  PAGE_TAB_HARDWARE_ERROR	= 0x4,
-  ILLEGAL_COMMAND_ERROR		= 0x5,
-  COMMAND_HARDWARE_ERROR	= 0x6,
-  IOTLB_INV_TIMEOUT		= 0x7,
-  INVALID_DEVICE_REQUEST	= 0x8,
+	ILLEGAL_DEV_TABLE_ENTRY		= 0x1,
+	IO_PAGE_FAULT			= 0x2,
+	DEV_TAB_HARDWARE_ERROR		= 0x3,
+	PAGE_TAB_HARDWARE_ERROR		= 0x4,
+	ILLEGAL_COMMAND_ERROR		= 0x5,
+	COMMAND_HARDWARE_ERROR		= 0x6,
+	IOTLB_INV_TIMEOUT		= 0x7,
+	INVALID_DEVICE_REQUEST		= 0x8,
 };
 
 #define EVT_GN			(1L << 16)
@@ -322,12 +347,12 @@ enum {
 
 struct iommu_softc;
 
-int ivhd_flush_devtab(struct iommu_softc *iommu, int did);
-int ivhd_invalidate_iommu_all(struct iommu_softc *iommu);
-int ivhd_invalidate_interrupt_table(struct iommu_softc *iommu, int did);
-int ivhd_issue_command(struct iommu_softc *iommu, const struct ivhd_command *cmd, int wait);
-int ivhd_invalidate_domain(struct iommu_softc *iommu, int did);
+int	ivhd_flush_devtab(struct iommu_softc *, int);
+int	ivhd_invalidate_iommu_all(struct iommu_softc *);
+int	ivhd_invalidate_interrupt_table(struct iommu_softc *, int);
+int	ivhd_issue_command(struct iommu_softc *, const struct ivhd_command *, int);
+int	ivhd_invalidate_domain(struct iommu_softc *, int);
 
-void _dumppte(struct pte_entry *pte, int lvl, vaddr_t va );
+void	_dumppte(struct pte_entry *, int, vaddr_t);
 
 #endif

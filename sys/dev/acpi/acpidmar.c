@@ -259,7 +259,7 @@ int		acpidmar_intr(void *);
 
 #define DID_UNITY 0x1
 
-void _dumppte(struct pte_entry *pte, int lvl, vaddr_t va);
+void _dumppte(struct pte_entry *, int, vaddr_t);
 
 struct domain *domain_create(struct iommu_softc *, int);
 struct domain *domain_lookup(struct acpidmar_softc *, int, int);
