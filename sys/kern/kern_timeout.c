@@ -52,12 +52,12 @@
  * Locks used to protect global variables in this file:
  *
  *	I	immutable after initialization
- *	T	timeout_mutex
+ *	t	timeout_mutex
  */
 struct mutex timeout_mutex = MUTEX_INITIALIZER(IPL_HIGH);
 
 void *softclock_si;			/* [I] softclock() interrupt handle */
-struct timeoutstat tostat;		/* [T] statistics and totals */
+struct timeoutstat tostat;		/* [t] statistics and totals */
 
 /*
  * Timeouts are kept in a hierarchical timing wheel. The to_time is the value
@@ -68,6 +68,10 @@ struct timeoutstat tostat;		/* [T] statistics and totals */
 #define WHEELSIZE 256
 #define WHEELMASK 255
 #define WHEELBITS 8
+<<<<<<< HEAD
+=======
+#define BUCKETS (WHEELCOUNT * WHEELSIZE)
+>>>>>>> 0884a802776cb99e44d7cbd0662dce893903df5a
 
 struct circq timeout_wheel[BUCKETS];	/* [T] Queues of timeouts */
 struct circq timeout_new;		/* [T] New, unscheduled timeouts */
@@ -634,6 +638,18 @@ void db_show_callout_bucket(struct circq *);
 
 void
 db_show_callout_bucket(struct circq *bucket)
+<<<<<<< HEAD
+=======
+{
+	struct circq *p;
+
+	CIRCQ_FOREACH(p, bucket)
+		db_show_timeout(timeout_from_circq(p), bucket);
+}
+
+void
+db_show_timeout(struct timeout *to, struct circq *bucket)
+>>>>>>> 0884a802776cb99e44d7cbd0662dce893903df5a
 {
 	char buf[8];
 	struct timeout *to;
@@ -660,6 +676,22 @@ db_show_callout_bucket(struct circq *bucket)
 		}
 		db_printf("%9d  %7s  0x%0*lx  %s\n",
 		    to->to_time - ticks, where, width, (ulong)to->to_arg, name);
+<<<<<<< HEAD
+=======
+	}
+}
+
+char *
+db_strtimespec(const struct timespec *ts)
+{
+	static char buf[32];
+	struct timespec tmp, zero;
+
+	if (ts->tv_sec >= 0) {
+		snprintf(buf, sizeof(buf), "%lld.%09ld",
+		    ts->tv_sec, ts->tv_nsec);
+		return buf;
+>>>>>>> 0884a802776cb99e44d7cbd0662dce893903df5a
 	}
 }
 

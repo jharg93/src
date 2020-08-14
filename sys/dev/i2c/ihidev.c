@@ -678,8 +678,10 @@ ihidev_intr(void *arg)
 		rep = *p++, psize--;
 
 	if (rep >= sc->sc_nrepid) {
+#if 0
 		printf("%s: %s: bad report id %d\n", sc->sc_dev.dv_xname,
 		    __func__, rep);
+#endif
 		if (sc->sc_poll) {
 			sc->sc_fastpoll = 0;
 			goto more_polling;

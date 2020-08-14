@@ -348,7 +348,6 @@ vmm_mapintr(pci_chipset_tag_t pc, struct pci_attach_args *pa) {
 	ppt->tag = pa->pa_tag;
 	pci_decompose_tag(pc, pa->pa_tag, &bus, &dev, &fun);
 	printf("Check Interrupt: %d/%d/%d : %d\n", bus, dev, fun, pa->pa_intrpin);	
-
 	if (pci_intr_map_msi(pa, &ppt->ih) || pci_intr_map(pa, &ppt->ih)) {
 		printf("Couldn't map %d/%d/%d\n", bus, dev, fun);
 		return;
@@ -465,6 +464,7 @@ vm_pio(struct vm_pio *pio)
 
 int vmm_intr(void *arg);
 
+/* Device interrupt handler. Increase pending count */
 int
 vmm_intr(void *arg)
 {
@@ -474,6 +474,7 @@ vmm_intr(void *arg)
 	return 1;
 }
 
+/* Get interrupt pending count for a device */
 int
 vm_getintr(struct vm_getintr *gi)
 {
