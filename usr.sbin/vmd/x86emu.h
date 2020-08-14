@@ -33,6 +33,7 @@ struct insn {
 #define sib_iii(x) (((x) >> 3) & 7)
 #define sib_bbb(x) (((x) >> 0) & 7)
 
+/* Opcode argument types: register, immediate, memory, etc */
 enum {
 	TYPE_SHIFT = 24,
 	SIZE_SHIFT = 16,
@@ -55,8 +56,8 @@ enum {
 	SIZE_WORD   = 'w' << SIZE_SHIFT,
 	SIZE_DWORD  = 'd' << SIZE_SHIFT,
 	SIZE_QWORD  = 'q' << SIZE_SHIFT,
-	SIZE_VWORD  = 'v' << SIZE_SHIFT,
-	SIZE_ZWORD  = 'z' << SIZE_SHIFT,
+	SIZE_VWORD  = 'v' << SIZE_SHIFT,  /* 16/32/64-bit opsize */
+	SIZE_ZWORD  = 'z' << SIZE_SHIFT,  /* 16/32-bit opsize */
 	SIZE_PTR    = 'p' << SIZE_SHIFT,
 	SIZE_SREG   = 's' << SIZE_SHIFT,
 	SIZE_CREG   = 'C' << SIZE_SHIFT,
@@ -146,6 +147,28 @@ enum {
 	rDS,
 	rFS,
 	rGS,
+};
+
+enum {
+	REX_B    = 0x1,   /* mrr.rrr or sib.bbb or op.ggg */
+	REX_X    = 0x2,   /* sib.iii */
+	REX_R    = 0x4,   /* mrr.ggg */
+	REX_W    = 0x8,   /* operand size=64-bit */
+
+	/* Prefix flags */
+	FLG_REX  = 0x0001,  /* REX byte */
+	FLG_SEG  = 0x0002,  /* segment prefix */
+	FLG_OSZ  = 0x0004,  /* operand size */
+	FLG_ASZ  = 0x0008,  /* address size */
+	FLG_LOCK = 0x0010,  /* lock */
+	FLG_REP  = 0x0020,  /* repz/repnz/rep */
+
+	/* Additional flags */
+	FLG_MRR  = 0x0100,  /* has mod-reg-rm byte */
+	FLG_GRP  = 0x0200,  /* opcode based on mrr.reg */
+	FLG_D64  = 0x0400,  /* default size = 64-bit */
+	FLG_NO64 = 0x0800,  /* invalid in 64-bit mode */
+	FLG_MEM  = 0x1000,  /* non-mrr memory */
 };
 
 int dodis(uint8_t *, struct insn *ix, int mode);

@@ -1690,6 +1690,7 @@ vcpu_exit_eptviolation(struct vm_run_params *vrp)
 	fprintf(stderr, "===============\nept violation: %llx  rip:0x%llx %.2x %.2x %.2x %.2x %.2x\n",
 		ve->vee.vee_gpa, ve->vrs.vrs_gprs[VCPU_REGS_RIP], instr[0], instr[1], instr[2],
 		instr[3], instr[4]);
+#if 0
 	fprintf(stderr, "  rax:0x%.16llx rbx:0x%.16llx rcx:0x%.16llx rdx:0x%.16llx\n",
 		ve->vrs.vrs_gprs[VCPU_REGS_RAX],
 		ve->vrs.vrs_gprs[VCPU_REGS_RBX],
@@ -1710,6 +1711,7 @@ vcpu_exit_eptviolation(struct vm_run_params *vrp)
 		ve->vrs.vrs_gprs[VCPU_REGS_R13],
 		ve->vrs.vrs_gprs[VCPU_REGS_R14],
 		ve->vrs.vrs_gprs[VCPU_REGS_R15]);
+#endif
 
 	vrwp.vrwp_mask = VM_RWREGS_GPRS;
 	vrwp.vrwp_vm_id = vrp->vrp_vm_id;

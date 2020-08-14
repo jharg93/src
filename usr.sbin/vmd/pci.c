@@ -425,6 +425,7 @@ pci_add_device(uint8_t *id, uint16_t vid, uint16_t pid, uint8_t class,
 
 	pci.pci_devices[*id].pd_csfunc = csfunc;
 	pci.pci_devices[*id].pd_cookie = cookie;
+	pci.pci_devices[*id].pd_ptd.id = 0xff;
 
 	if (irq_needed) {
 		pci.pci_devices[*id].pd_irq =
@@ -561,7 +562,7 @@ pci_add_pthru(struct vmd_vm *vm, int bus, int dev, int fun)
 	fprintf(stderr, "intr: pin:%.2x line:%.2x\n",
 		PCI_INTERRUPT_PIN(intr_reg), PCI_INTERRUPT_LINE(intr_reg));
 	ptd_conf_write(bus, dev, fun, 0x4, cmd_reg & ~(PCI_COMMAND_IO_ENABLE|PCI_COMMAND_MEM_ENABLE));
-#if 1
+#if 0
 	/* Unregister previous VMM */
 	for (i = 0; i < MAXBAR; i++) {
 		if (pd->barinfo[i].va) {
@@ -787,11 +788,6 @@ pci_handle_data_reg(struct vm_run_params *vrp)
 	 * The guest wrote to the config space location denoted by the current
 	 * value in the address register.
 	 */
-	if (o >= 0x10 && o <= 0x24 && 0) {
-		fprintf(stderr, "%d %.2x bar: %c %.8x\n", 
-			d, o, (vei->vei.vei_dir == VEI_DIR_OUT) ? 'w' : 'r',
-			(vei->vei.vei_dir == VEI_DIR_OUT) ? wrdata : data);
-	}			
 	if (vei->vei.vei_dir == VEI_DIR_OUT) {
 		if (o >= 0x10 && o <= 0x24) {
 			baridx = (o - 0x10) / 4;

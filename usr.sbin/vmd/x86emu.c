@@ -23,28 +23,6 @@
 
 #define printf(x...) fprintf(stderr, x)
 
-enum {
-	REX_B    = 0x1,   // mrr.rrr or sib.bbb or op.ggg
-	REX_X    = 0x2,   // sib.iii
-	REX_R    = 0x4,   // mrr.ggg
-	REX_W    = 0x8,   // opsize
-
-	/* Prefix flags */
-	FLG_REX  = 0x0001,
-	FLG_SEG  = 0x0002,
-	FLG_OSZ  = 0x0004,
-	FLG_ASZ  = 0x0008,
-	FLG_LOCK = 0x0010,
-	FLG_REP  = 0x0020,
-
-	/* Additional flags */
-	FLG_MRR  = 0x0100,  // has mod-reg-rm byte
-	FLG_GRP  = 0x0200,  // opcode based on mrr.reg
-	FLG_D64  = 0x0400,  // default size = 64-bit
-	FLG_NO64 = 0x0800,  // invalid in 64-bit mode
-	FLG_MEM  = 0x1000,  // non-mrr memory
-};
-
 #define _(m, a...) { .mnem=#m, a }
 #define _xxx { }
 #define __ 0
@@ -268,14 +246,14 @@ struct opcode locodes[256] = {
 	_(dec,     gv,  __, __, FLG_REX),
 
 	/* 0x50 */
-	_(push,    gv,  __, __, FLG_D64), // 41.50 = r8
 	_(push,    gv,  __, __, FLG_D64),
 	_(push,    gv,  __, __, FLG_D64),
 	_(push,    gv,  __, __, FLG_D64),
 	_(push,    gv,  __, __, FLG_D64),
 	_(push,    gv,  __, __, FLG_D64),
 	_(push,    gv,  __, __, FLG_D64),
-	_(push,    gv,  __, __, FLG_D64), // 41.57 = r15
+	_(push,    gv,  __, __, FLG_D64),
+	_(push,    gv,  __, __, FLG_D64),
 	_(pop,     gv,  __, __, FLG_D64),
 	_(pop,     gv,  __, __, FLG_D64),
 	_(pop,     gv,  __, __, FLG_D64),
@@ -288,8 +266,8 @@ struct opcode locodes[256] = {
 	/* 0x60 */
 	_(pusha,   __,  __, __, FLG_NO64),
 	_(popa,    __,  __, __, FLG_NO64),
-	_xxx,                               // EVEX
-	_xxx,                               // movsxd Gv, Rd
+	_xxx,                               /* EVEX */
+	_xxx,                               /* movsxd Gv, Rd */
 	_(pfx,    rFS,  __, __, FLG_SEG),
 	_(pfx,    rGS,  __, __, FLG_SEG),
 	_(pfx,     __,  __, __, FLG_OSZ),
@@ -298,10 +276,10 @@ struct opcode locodes[256] = {
 	_(imul,    Gv,  Ev, Iz, FLG_MRR),
 	_(push,    Ib,  __, __, FLG_D64),
 	_(imul,    Gv,  Ev, Ib, FLG_MRR),
-	_(insb,    Yb, rDX, __, FLG_MEM),   // rep
-	_(insv,    Yv, rDX, __, FLG_MEM),   // rep
-	_(outsb,  rDX,  Xb, __, FLG_MEM),   // rep
-	_(outsv,  rDX,  Xv, __, FLG_MEM),   // rep
+	_(insb,    Yb, rDX, __, FLG_MEM),   /* rep */
+	_(insv,    Yv, rDX, __, FLG_MEM),   /* rep */
+	_(outsb,  rDX,  Xb, __, FLG_MEM),   /* rep */
+	_(outsv,  rDX,  Xv, __, FLG_MEM),   /* rep */
 
 	/* 0x70 */
 	_(jcc,     Jb,  __, __, FLG_D64),
@@ -337,19 +315,19 @@ struct opcode locodes[256] = {
 	_(mov,     Ew,  Sw, __, FLG_MRR),
 	_(lea,     Gv,  Mp, __, FLG_MRR),
 	_(mov,     Sw,  Ew, __, FLG_MRR),
-	_(pop,     Ev,  __, __, FLG_MRR), // GRP1a [pop]
+	_(pop,     Ev,  __, __, FLG_MRR), /* GRP1a [pop] */
 
 	/* 0x90 */
 	_(nop),
-	_(xchg,  rvAX,  gv), // 49.91 = xchg rax,r9
 	_(xchg,  rvAX,  gv),
 	_(xchg,  rvAX,  gv),
 	_(xchg,  rvAX,  gv),
 	_(xchg,  rvAX,  gv),
 	_(xchg,  rvAX,  gv),
 	_(xchg,  rvAX,  gv),
-	_(cbw), // AX=AL    / EAX=AX      / RAX=EAX
-	_(cwd), // DX:AX=AX / EDX:EAX=EAX / RDX:RAX=RAX
+	_(xchg,  rvAX,  gv),
+	_(cbw), 			/* AX=AL    / EAX=AX      / RAX=EAX */
+	_(cwd), 			/* DX:AX=AX / EDX:EAX=EAX / RDX:RAX=RAX */
 	_(call,    Ap,  __, __, FLG_NO64),
 	_(wait),
 	_(pushf,   __,  __, __, FLG_D64),
@@ -362,29 +340,29 @@ struct opcode locodes[256] = {
 	_(mov,   rvAX,  Ov, __, FLG_MEM),
 	_(mov,     Ob, rAL, __, FLG_MEM),
 	_(mov,     Ov,rvAX, __, FLG_MEM),
-	_(movsb,   Yb,  Xb, __, FLG_MEM), //rep
-	_(movsv,   Yv,  Xv, __, FLG_MEM), //rep
-	_(cmpsb,   Yb,  Xb, __, FLG_MEM), //repz/repnz
-	_(cmpsv,   Yb,  Xv, __, FLG_MEM), //repz/repnz
+	_(movsb,   Yb,  Xb, __, FLG_MEM), /* rep */
+	_(movsv,   Yv,  Xv, __, FLG_MEM), /* rep */
+	_(cmpsb,   Yb,  Xb, __, FLG_MEM), /* repz/repnz */
+	_(cmpsv,   Yb,  Xv, __, FLG_MEM), /* repz/repnz */
 	_(test,   rAL,  Ib),
 	_(test,  rvAX,  Iz),
-	_(stosb,   Yb, rAL, __, FLG_MEM), //rep
-	_(stosv,   Yv,rvAX, __, FLG_MEM), //rep
+	_(stosb,   Yb, rAL, __, FLG_MEM), /* rep */
+	_(stosv,   Yv,rvAX, __, FLG_MEM), /* rep */
 	_(lodsb,  rAL,  Xb, __, FLG_MEM),
 	_(lodsv, rvAX,  Xv, __, FLG_MEM),
-	_(scasb,   Yb, rAL, __, FLG_MEM), //repz/repnz
-	_(scasv,   Yv,rvAX, __, FLG_MEM), //repz/repnz
+	_(scasb,   Yb, rAL, __, FLG_MEM), /* repz/repnz */
+	_(scasv,   Yv,rvAX, __, FLG_MEM), /* repz/repnz */
 
 	/* 0xb0 */
 	_(mov,     gb,  Ib),
 	_(mov,     gb,  Ib),
 	_(mov,     gb,  Ib),
 	_(mov,     gb,  Ib),
-	_(mov,     gb,  Ib), // spl
-	_(mov,     gb,  Ib), // bpl
-	_(mov,     gb,  Ib), // sil
-	_(mov,     gb,  Ib), // dil
-	_(mov,     gv,  Iv), // Iq
+	_(mov,     gb,  Ib),
+	_(mov,     gb,  Ib),
+	_(mov,     gb,  Ib),
+	_(mov,     gb,  Ib),
+	_(mov,     gv,  Iv),
 	_(mov,     gv,  Iv),
 	_(mov,     gv,  Iv),
 	_(mov,     gv,  Iv),
@@ -398,10 +376,10 @@ struct opcode locodes[256] = {
 	_(grp2,    Ev,  Ib, __, FLG_MRR|FLG_GRP),
 	_(ret,     Iw,  __, __, FLG_D64),
 	_(ret,     __,  __, __, FLG_D64),
-	_(les,     Gv,  Mp, __, FLG_MRR|FLG_NO64), // VEX3
-	_(lds,     Gv,  Mp, __, FLG_MRR|FLG_NO64), // VEX2
-	_(mov,     Eb,  Ib, __, FLG_MRR),  // GRP11 [mov]
-	_(mov,     Ev,  Iz, __, FLG_MRR),  // GRP11 [mov]
+	_(les,     Gv,  Mp, __, FLG_MRR|FLG_NO64), 	/* VEX3 */
+	_(lds,     Gv,  Mp, __, FLG_MRR|FLG_NO64), 	/* VEX2 */
+	_(mov,     Eb,  Ib, __, FLG_MRR),  		/* GRP11 [mov] */
+	_(mov,     Ev,  Iz, __, FLG_MRR),  		/* GRP11 [mov] */
 	_(enter,   Iw,  Ib, __, FLG_D64),
 	_(leave,   __,  __, __, FLG_D64),
 	_(retf,    Iw),
@@ -454,8 +432,8 @@ struct opcode locodes[256] = {
 	_(pfx,    __, __,  __, FLG_REP),
 	_(hlt),
 	_(cmc),
-	_(grp3,   __, __,  __, FLG_MRR|FLG_GRP), // Eb
-	_(grp3,   __, __,  __, FLG_MRR|FLG_GRP), // Ev
+	_(grp3,   __, __,  __, FLG_MRR|FLG_GRP), /* Eb */
+	_(grp3,   __, __,  __, FLG_MRR|FLG_GRP), /* Ev */
 	_(clc),
 	_(stc),
 	_(cli),
@@ -466,6 +444,7 @@ struct opcode locodes[256] = {
 	_(grp5,   __, __,  __, FLG_MRR|FLG_GRP),
 };
 
+/* instruction state */
 struct istate {
 	uint32_t op;
 	uint8_t  rep;
@@ -496,6 +475,7 @@ static int
 osize(struct istate *i) {
 	switch (i->mode) {
 	case SIZE_QWORD:
+		/* Default opsize or REX.W */
 		if ((i->flag & FLG_D64) || (i->rex & REX_W))
 			return SIZE_QWORD;
 		return (i->flag & FLG_OSZ) ? SIZE_WORD : SIZE_DWORD;
@@ -533,6 +513,7 @@ decodeop(struct istate *i)
 	for(;;) {
 		op = getb(i);
 		if (op == 0x0f) {
+			/* Decode 2nd byte */
 			op = (op << 8) | getb(i);
 			o  = hicodes[op & 0xFF];
 		} else {
@@ -541,6 +522,7 @@ decodeop(struct istate *i)
 		i->flag |= o.flag;
 		i->op = op;
 
+		/* Check if this is a prefix opcode */
 		if (o.flag == FLG_SEG)
 			i->seg = o.arg0;
 		else if (o.flag == FLG_REP)
@@ -548,6 +530,7 @@ decodeop(struct istate *i)
 		else if (o.flag == FLG_REX && (i->mode == SIZE_QWORD))
 			i->rex = op;
 		else if (!(o.flag & (FLG_OSZ|FLG_ASZ|FLG_LOCK))) {
+			/* get Mod-Reg-RM byte */
 			if (i->flag & FLG_MRR)
 				i->mrr = getb(i);
 			/* Get operand and address size */
@@ -560,9 +543,9 @@ decodeop(struct istate *i)
 	}
 }
 
-/*=====================================================
+/*
  * Register names
- *=====================================================*/
+ */
 static const char *bregs[] = { 
 	"al", "cl", "dl",  "bl",  "ah",  "ch",  "dh",  "bh",
 	"r8b","r9b","r10b","r11b","r12b","r13b","r14b","r15b",
@@ -584,10 +567,11 @@ static const char *qregs[] = {
 static const char *
 regname(int reg) {
 	int vv = reg & VAL_MASK;
+	int sz = reg & SIZE_MASK;
 
-	if (vv > 20)
+	if ((sz != SIZE_BYTE && vv >= 16) || vv >= 20)
 		return "xx";
-	switch (reg & SIZE_MASK) {
+	switch (sz) {
 	case SIZE_BYTE: return bregs[vv];
 	case SIZE_WORD: return wregs[vv];
 	case SIZE_DWORD:return dregs[vv];
@@ -637,6 +621,9 @@ mkimm(struct istate *i, int sz, uint64_t val, const char *fmt) {
 		val |= getb(i) << 48LL;
 		val |= getb(i) << 56LL;
 		break;
+	default:
+		/* val already contains value */
+		break;
 	}
 	printf(fmt, val);
 	return val;
@@ -650,7 +637,7 @@ mkea(struct istate *i, int sz) {
 	mm = mrr_mm(i->mrr);
 	rrr = mrr_rrr(i->mrr);
 	if (mm == 3) {
-		// register encoding
+		/* register encoding */
 		return mkreg(i, sz, rrr, REX_B);
 	}
 	switch (i->asz) {
@@ -722,17 +709,19 @@ decodearg(struct istate *i, int arg) {
 	if (sz == SIZE_ZWORD)
 		sz = SIZE_DWORD;
 	switch (tt) {
-	case TYPE_REG:    // specific register
+	case TYPE_REG:    /* specific register */
 		return mkreg(i, sz, vv, 0);
-	case TYPE_EMBREG: // embedded in opcode
+	case TYPE_EMBREG: /* embedded in opcode */
 		return mkreg(i, sz, i->op & 0x7, REX_B);
-	case TYPE_EAREG:  // embedded in mrr
+	case TYPE_EAREG:  /* embedded in mrr */
 		return mkreg(i, sz, mrr_ggg(i->mrr), REX_R);
 	case TYPE_EA:
-	case TYPE_EAMEM:  // effective address
+	case TYPE_EAMEM:  /* effective address */
 		return mkea(i, sz);
-	case TYPE_IMM:    // immediate value
+	case TYPE_IMM:    /* immediate value */
 		return mkimm(i, sz, vv, "imm:$0x%llx ");
+	case TYPE_INDEX:  /* string operations */
+		break;
 	default:
 		printf("Unknown arg: %.8x ", arg);
 		break;
@@ -740,6 +729,7 @@ decodearg(struct istate *i, int arg) {
 	return 0;
 }
 
+/* Get size of operand in bytes */
 static int
 sz(int arg) {
 	switch (arg & SIZE_MASK) {
@@ -768,10 +758,10 @@ static int vmmreg[] = {
 	VCPU_REGS_R13,
 	VCPU_REGS_R14,
 	VCPU_REGS_R15,
-	VCPU_REGS_RSP, // spl
-	VCPU_REGS_RBP, // bpl
-	VCPU_REGS_RSI, // sil
-	VCPU_REGS_RDI, // dil
+	VCPU_REGS_RSP, /* spl */
+	VCPU_REGS_RBP, /* bpl */
+	VCPU_REGS_RSI, /* sil */
+	VCPU_REGS_RDI, /* dil */
 };
 
 /* Map X86 reg to vmm reg */
@@ -783,6 +773,10 @@ Vreg(int arg) {
 	return VCPU_REGS_RAX;
 }
 
+/* 
+ * Disassemble opcode for MMIO fault.  
+ * Returns the direction, size and register to read/write in memory handler
+ */
 int
 dodis(uint8_t *ib, struct insn *ix, int mode) {
 	struct istate i = { 0 };
@@ -793,7 +787,7 @@ dodis(uint8_t *ib, struct insn *ix, int mode) {
 	i.mode = mode;
 	o = decodeop(&i);
 	printf("%c%c dis: %.2x %.2x %.2x %.2x | %-6s", 
-	(i.osz >> 16), (i.asz >> 16), i.seg, i.rep, i.rex, i.op, o.mnem);
+		(i.osz >> 16), (i.asz >> 16), i.seg, i.rep, i.rex, i.op, o.mnem);
 	a0 = decodearg(&i, o.arg0); 
 	a1 = decodearg(&i, o.arg1); 
 	decodearg(&i, o.arg2); 
