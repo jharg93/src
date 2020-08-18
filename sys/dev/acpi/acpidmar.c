@@ -835,6 +835,8 @@ dmar_dmamem_mmap(bus_dma_tag_t tag, bus_dma_segment_t *segs, int nsegs,
 /*===================================
  * IOMMU code
  *===================================*/
+
+/* Intel: Set Context Root Address */
 void
 iommu_set_rtaddr(struct iommu_softc *iommu, paddr_t paddr)
 {
@@ -855,6 +857,7 @@ iommu_set_rtaddr(struct iommu_softc *iommu, paddr_t paddr)
 	}
 }
 
+/* COMMON: Allocate a new memory page */
 void *
 iommu_alloc_page(struct iommu_softc *iommu, paddr_t *paddr)
 {
@@ -870,6 +873,7 @@ iommu_alloc_page(struct iommu_softc *iommu, paddr_t *paddr)
 }
 
 
+/* Intel: Issue command via queued invalidation */
 void
 iommu_issue_qi(struct iommu_softc *iommu, struct qi_entry *qi)
 {
@@ -888,6 +892,7 @@ iommu_issue_qi(struct iommu_softc *iommu, struct qi_entry *qi)
 #endif
 }
 
+/* Intel: Flush TLB entries, Queued Invalidation mode */
 void
 iommu_flush_tlb_qi(struct iommu_softc *iommu, int mode, int did)
 {
@@ -915,6 +920,7 @@ iommu_flush_tlb_qi(struct iommu_softc *iommu, int mode, int did)
 	iommu_issue_qi(iommu, &qi);
 }
 
+/* Intel: Flush Context entries, Queued Invalidation mode */
 void
 iommu_flush_ctx_qi(struct iommu_softc *iommu, int mode, int did,
     int sid, int fm)
@@ -938,6 +944,7 @@ iommu_flush_ctx_qi(struct iommu_softc *iommu, int mode, int did,
 	iommu_issue_qi(iommu, &qi);
 }
 
+/* Intel: Flush write buffers */
 void
 iommu_flush_write_buffer(struct iommu_softc *iommu)
 {
@@ -971,6 +978,10 @@ iommu_flush_cache(struct iommu_softc *iommu, void *addr, size_t size)
 		pmap_flush_cache((vaddr_t)addr, size);
 }
 
+/*
+ * Intel: Flush IOMMU TLB Entries
+ * Flushing can occur globally, per domain or per page 
+ */
 void
 iommu_flush_tlb(struct iommu_softc *iommu, int mode, int did)
 {
@@ -996,6 +1007,7 @@ iommu_flush_tlb(struct iommu_softc *iommu, int mode, int did)
 		break;
 	}
 
+	/* Check for Read/Write Drain */
 	if (iommu->cap & CAP_DRD)
 		val |= IOTLB_DR;
 	if (iommu->cap & CAP_DWD)
@@ -1028,6 +1040,9 @@ iommu_flush_tlb(struct iommu_softc *iommu, int mode, int did)
 #endif
 }
 
+/* Intel: Flush IOMMU settings
+ * Flushes can occur globally, per domain, or per device
+ */
 void
 iommu_flush_ctx(struct iommu_softc *iommu, int mode, int did, int sid, int fm)
 {
@@ -1077,6 +1092,7 @@ iommu_flush_ctx(struct iommu_softc *iommu, int mode, int did, int sid, int fm)
 #endif
 }
 
+/* Intel: Enable Queued Invalidation */
 void
 iommu_enable_qi(struct iommu_softc *iommu, int enable)
 {
@@ -1115,6 +1131,7 @@ iommu_enable_qi(struct iommu_softc *iommu, int enable)
 	}
 }
 
+/* Intel: Enable IOMMU translation */
 int
 iommu_enable_translation(struct iommu_softc *iommu, int enable)
 {
@@ -1179,6 +1196,7 @@ iommu_enable_translation(struct iommu_softc *iommu, int enable)
 	return (0);
 }
 
+/* Intel: Initialize IOMMU */
 int
 iommu_init(struct acpidmar_softc *sc, struct iommu_softc *iommu,
     struct acpidmar_drhd *dh)
@@ -1269,6 +1287,7 @@ iommu_init(struct acpidmar_softc *sc, struct iommu_softc *iommu,
 	}
 #endif
 
+	/* Calculate guest address width and supported guest widths */
 	gaw = -1;
 	iommu->mgaw = cap_mgaw(iommu->cap);
 	printf("gaw: %d { ", iommu->mgaw);
@@ -1281,6 +1300,7 @@ iommu_init(struct acpidmar_softc *sc, struct iommu_softc *iommu,
 	}
 	printf("}\n");
 
+	/* Cache current status register bits */
 	sts = iommu_readl(iommu, DMAR_GSTS_REG);
 	if (sts & GSTS_TES)
 		iommu->gcmd |= GCMD_TE;
@@ -2176,7 +2196,7 @@ _ivhd_issue_command(struct iommu_softc *iommu, const struct ivhd_command *cmd)
 	memcpy(iommu->cmd_tbl + tail, cmd, sz);
 	iommu_writel(iommu, CMD_TAIL_REG, next);
 	intr_restore(rf);
-	return (0);
+	return (tail);
 }
 
 int
@@ -2188,7 +2208,7 @@ ivhd_issue_command(struct iommu_softc *iommu, const struct ivhd_command *cmd, in
 	int rc, i;
 
 	rc = _ivhd_issue_command(iommu, cmd);
-	if (!rc && wait) {
+	if (rc >= 0 && wait) {
 		/* Wait for previous commands to complete.
 		 * Store address of completion variable to command */
 		pmap_extract(pmap_kernel(), (vaddr_t)&wv, &paddr);
@@ -2203,8 +2223,8 @@ ivhd_issue_command(struct iommu_softc *iommu, const struct ivhd_command *cmd, in
 			DELAY(1000);
 		}
 		if (i == 1000) {
-			printf("ivhd command timeout: %.8x %.8x %.8x %.8x wv:%llx\n", 
-				cmd->dw0, cmd->dw1, cmd->dw2, cmd->dw3, wv);
+			printf("ivhd command timeout: %.8x %.8x %.8x %.8x wv:%llx idx:%x\n", 
+				cmd->dw0, cmd->dw1, cmd->dw2, cmd->dw3, wv, rc);
 			ivhd_showcmd(iommu);
 		}
 	}
@@ -2606,6 +2626,19 @@ acpiivrs_init(struct acpidmar_softc *sc, struct acpi_ivrs *ivrs)
 	printf("======== End IVRS\n");
 }
 
+static int
+acpiivhd_activate(struct iommu_softc *iommu, int act)
+{
+	switch (act) {
+	case DVACT_SUSPEND:	
+		iommu->flags |= IOMMU_FLAGS_SUSPEND;
+		break;
+	case DVACT_RESUME:
+		break;
+	}
+	return (0);
+}
+
 int
 acpidmar_activate(struct device *self, int act)
 {
@@ -2622,8 +2655,10 @@ acpidmar_activate(struct device *self, int act)
 	case DVACT_RESUME:
 		TAILQ_FOREACH(iommu, &sc->sc_drhds, link) {
 			printf("iommu%d resume\n", iommu->id);
-			if (iommu->dte)
+			if (iommu->dte) {
+				acpiivhd_activate(iommu, act);
 				continue;
+			}
 			iommu_flush_write_buffer(iommu);
 			iommu_set_rtaddr(iommu, iommu->rtaddr);
 			iommu_writel(iommu, DMAR_FEDATA_REG, iommu->fedata);
@@ -2641,10 +2676,12 @@ acpidmar_activate(struct device *self, int act)
 	case DVACT_SUSPEND:
 		TAILQ_FOREACH(iommu, &sc->sc_drhds, link) {
 			printf("iommu%d suspend\n", iommu->id);
-			if (iommu->dte)
-				continue;
 			if (iommu->flags & IOMMU_FLAGS_BAD)
 				continue;
+			if (iommu->dte) {
+				acpiivhd_activate(iommu, act);
+				continue;
+			}
 			iommu->flags |= IOMMU_FLAGS_SUSPEND;
 			iommu_enable_translation(iommu, 0);
 			iommu_showcfg(iommu, -1);
