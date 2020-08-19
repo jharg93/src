@@ -256,6 +256,26 @@ pci_memh2(int dir, uint64_t base, uint32_t size, void *data, void *cookie)
 }
 
 /*
+ * pci_mkbar
+ *
+ * Calculates BAR address is valid
+ * Returns allocated address and updates next address
+ * Returns zero if address is out of range
+ */
+static uint64_t
+pci_mkbar(uint64_t *base, uint32_t size, uint64_t maxbase)
+{
+	uint64_t mask = size - 1;
+	uint64_t cbase;
+
+	if (*base + size >= maxbase)
+		return (0);
+	cbase = *base;
+	*base = (*base + size + mask) & ~mask;
+	return cbase;
+}
+
+/*
  * pci_add_bar
  *
  * Adds a BAR for the PCI device 'id'. On access, 'barfn' will be
@@ -291,12 +311,12 @@ pci_add_bar(uint8_t id, uint32_t type, uint32_t sz, void *barfn, void *cookie)
 	/* Compute BAR address and add */
 	bar_reg_idx = (PCI_MAPREG_START + (bar_ct * 4)) / 4;
 	if (type == (PCI_MAPREG_TYPE_MEM | PCI_MAPREG_MEM_TYPE_64BIT)) {
-		if (pci.pci_next_mmio_bar + sz >= VMM_PCI_MMIO_BAR_END)
-			return (1);
-
 		fprintf(stderr, "Adding 64-bit MMIO\n");
 		// Page align makes easier mapping
-		base = mbar(&pci.pci_next_mmio_bar, sz, 4096);
+		base = pci_mkbar(&pci.pci_next_mmio_bar, sz, VMM_PCI_MMIO_BAR_END);
+		if (base == 0)
+			return (1);
+
 		pci.pci_devices[id].pd_cfg_space[bar_reg_idx] = 
 		    PCI_MAPREG_MEM_ADDR(base) | PCI_MAPREG_MEM_TYPE_64BIT;
 		pci.pci_devices[id].pd_barfunc[bar_ct] = barfn;
@@ -306,11 +326,11 @@ pci_add_bar(uint8_t id, uint32_t type, uint32_t sz, void *barfn, void *cookie)
 		pci.pci_devices[id].pd_bar_ct++;
 		pci.pci_devices[id].pd_bartype[bar_ct+1] = PCI_BAR_TYPE_MMIO;
 	} else if (type == PCI_MAPREG_TYPE_MEM) {
-		if (pci.pci_next_mmio_bar + sz >= VMM_PCI_MMIO_BAR_END)
+		// Page align makes easier mapping
+		base = pci_mkbar(&pci.pci_next_mmio_bar, sz, VMM_PCI_MMIO_BAR_END);
+		if (base == 0)
 			return (1);
 
-		// Page align makes easier mapping
-		base = mbar(&pci.pci_next_mmio_bar, sz, 4096);
 		pci.pci_devices[id].pd_cfg_space[bar_reg_idx] = 
 		    PCI_MAPREG_MEM_ADDR(base);
 		pci.pci_devices[id].pd_barfunc[bar_ct] = barfn;
@@ -319,10 +339,10 @@ pci_add_bar(uint8_t id, uint32_t type, uint32_t sz, void *barfn, void *cookie)
 		pci.pci_devices[id].pd_barsize[bar_ct] = sz;
 		pci.pci_devices[id].pd_bar_ct++;
 	} else if (type == PCI_MAPREG_TYPE_IO) {
-		if (pci.pci_next_io_bar + sz >= VMM_PCI_IO_BAR_END)
+		base = pci_mkbar(&pci.pci_next_io_bar, sz, VMM_PCI_IO_BAR_END);
+		if (base == 0)
 			return (1);
 
-		base = mbar(&pci.pci_next_io_bar, sz, 4);
 		pci.pci_devices[id].pd_cfg_space[bar_reg_idx] = 
 		    PCI_MAPREG_IO_ADDR(base) |
 		    PCI_MAPREG_TYPE_IO;
