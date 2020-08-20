@@ -155,6 +155,7 @@ command.
 .Op Fl n Ar switch
 .Op Fl r Ar path
 .Op Fl t Ar name
+.Op Fl p Ar bus:dev:func
 .Ar id | name
 .Ek
 .Xc
@@ -237,6 +238,10 @@ as a template to create a new VM instance.
 The instance will inherit settings from the parent VM,
 except for exclusive options such as disk, interface lladdr, and
 interface names.
+.It Fl p Ar bus:dev:func
+Add Passthrough PCI device at host PCI address
+.Ar bus:dev:func
+(decimal) to the guest.  Up to 4 devices are allowed.
 .El
 .It Cm status Op Ar id
 List VMs running on the host, optionally listing just the selected VM

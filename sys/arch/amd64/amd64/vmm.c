@@ -7195,6 +7195,7 @@ vmm_handle_cpuid(struct vcpu *vcpu)
 		 * update %rax. the rest of the registers get updated in
 		 * svm_enter_guest
 	 	 */
+		printf("cpuid: %.16llx %.16llx\n", vmcb->v_rax, *rax); 
 		vmcb->v_rax = *rax;
 	}
 

@@ -486,9 +486,9 @@ parse_pcis(struct parse_result *res, char *pcipath)
 {
 	uint32_t	*pcis;
 	uint32_t	bus, dev, func;
-	
+
 	if (res->npcis >= VMM_MAX_PCI_PTHRU) {
-		warn("too many pci");
+		warn("too many pci devices");
 		return -1;
 	}
 	if (sscanf(pcipath, "%d:%d:%d", &bus, &dev, &func) != 3) {
