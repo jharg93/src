@@ -493,7 +493,6 @@ ppt_csfn(int dir, uint8_t reg, uint8_t sz, uint32_t *data, void *cookie)
 {
 	struct pci_ptd *pd = cookie;
 	struct pci_dev *pdev;
-	uint32_t rwdata = *data;
 
 	pdev = &pci.pci_devices[pd->id];
 	fprintf(stderr, "@pciio: %c:%.2x %d %.8x\n", dir == VEI_DIR_IN ? 'r' : 'w', reg, sz, *data);
@@ -795,32 +794,24 @@ pci_handle_data_reg(struct vm_run_params *vrp)
 	 */
 	if (vei->vei.vei_dir == VEI_DIR_OUT) {
 		if (o >= 0x10 && o <= 0x24) {
+			/* When Changing a BAR we must calculate readonly bits */
 			baridx = (o - 0x10) / 4;
 			barval = pci.pci_devices[d].pd_cfg_space[o/4];
 			barsize = pci.pci_devices[d].pd_barsize[baridx];
 			bartype = pci.pci_devices[d].pd_bartype[baridx];
 
-			if (barsize) {	
-				/* Mask off invalid bits */
-				wrdata &= ~(barsize - 1);
-				if (bartype == PCI_BAR_TYPE_IO)
-					wrdata |= (barval & 0x1);
-				else {
-					/* Modify memory handler */
-					unregister_mem(barval & ~0xF);
-					register_mem(wrdata, barsize, pci_memh2, 
-							PTD_DEVID(d, baridx));	
-					wrdata |= (barval & 0xF);
-				}
+			/* Mask off size */
+			vei->vei.vei_data &= ~(barsize - 1);
+
+			/* Keep lower bits of current config space value */
+			if (bartype == PCI_BAR_TYPE_IO)
+				vei->vei.vei_data |= (barval & ~PCI_MAPREG_IO_ADDR_MASK);
+			else {
+				vei->vei.vei_data |= (barval & ~PCI_MAPREG_MEM_ADDR_MASK);
+				unregister_mem(barval & PCI_MAPREG_MEM_ADDR_MASK);
+				register_mem(vei->vei.vei_data & PCI_MAPREG_MEM_ADDR_MASK,
+				    barsize, pci_memh2, PTD_DEVID(d, baridx));	
 			}
-			else if (bartype != PCI_BAR_TYPE_MMIO)
-				wrdata = 0;
-#if 0
-			fprintf(stderr, "%d %.2x val:%.8x/%.8llx new:%.8x [%.8x] ip:%.16llx\n", 
-				d, o, barval, barsize, wrdata, vei->vei.vei_data,
-				vei->vrs.vrs_gprs[VCPU_REGS_RIP]);
-#endif
-			vei->vei.vei_data = wrdata;
 		}
 
 		/*
