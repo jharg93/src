@@ -135,7 +135,6 @@ int vm_rwregs(struct vm_rwregs_params *, int);
 int vm_mprotect_ept(struct vm_mprotect_ept_params *);
 int vm_rwvmparams(struct vm_rwvmparams_params *, int);
 int vm_find(uint32_t, struct vm **);
-struct vcpu *vm_find_vcpu(struct vm *, uint32_t);
 int vcpu_readregs_vmx(struct vcpu *, uint64_t, struct vcpu_reg_state *);
 int vcpu_readregs_svm(struct vcpu *, uint64_t, struct vcpu_reg_state *);
 int vcpu_writeregs_vmx(struct vcpu *, uint64_t, int, struct vcpu_reg_state *);
@@ -841,6 +840,34 @@ vmmclose(dev_t dev, int flag, int mode, struct proc *p)
 }
 
 /*
+ * vm_find_vcpu
+ *
+ * Lookup VMM VCPU by ID number
+ *
+ * Parameters:
+ *  vm: vm structure
+ *  id: index id of vcpu
+ *
+ * Returns pointer to vcpu structure if successful, NULL otherwise
+ */
+static struct vcpu *
+vm_find_vcpu(struct vm *vm, uint32_t id)
+{
+	struct vcpu *vcpu;
+
+	if (vm == NULL)
+		return NULL;
+	rw_enter_read(&vm->vm_vcpu_lock);
+	SLIST_FOREACH(vcpu, &vm->vm_vcpu_list, vc_vcpu_link) {
+		if (vcpu->vc_id == id)
+			break;
+	}
+	rw_exit_read(&vm->vm_vcpu_lock);
+	return vcpu;
+}
+
+
+/*
  * vm_resetcpu
  *
  * Resets the vcpu defined in 'vrp' to power-on-init register state
@@ -874,6 +901,7 @@ vm_resetcpu(struct vm_resetcpu_params *vrp)
 	}
 
 	vcpu = vm_find_vcpu(vm, vrp->vrp_vcpu_id);
+
 	if (vcpu == NULL) {
 		DPRINTF("%s: vcpu id %u of vm %u not found\n", __func__,
 		    vrp->vrp_vcpu_id, vrp->vrp_vm_id);
@@ -932,7 +960,7 @@ vm_intr_pending(struct vm_intr_params *vip)
 		rw_exit_read(&vmm_softc->vm_lock);
 		return (error);
 	}
-	
+
 	vcpu = vm_find_vcpu(vm, vip->vip_vcpu_id);
 	rw_exit_read(&vmm_softc->vm_lock);
 
@@ -992,7 +1020,7 @@ vm_rwvmparams(struct vm_rwvmparams_params *vpp, int dir) {
 		rw_exit_read(&vmm_softc->vm_lock);
 		return (error);
 	}
-	
+
 	vcpu = vm_find_vcpu(vm, vpp->vpp_vcpu_id);
 	rw_exit_read(&vmm_softc->vm_lock);
 
@@ -1120,6 +1148,7 @@ vm_mprotect_ept(struct vm_mprotect_ept_params *vmep)
 	}
 
 	vcpu = vm_find_vcpu(vm, vmep->vmep_vcpu_id);
+
 	if (vcpu == NULL) {
 		DPRINTF("%s: vcpu id %u of vm %u not found\n", __func__,
 		    vmep->vmep_vcpu_id, vmep->vmep_vm_id);
@@ -1390,22 +1419,6 @@ vm_find(uint32_t id, struct vm **res)
 	}
 
 	return (ENOENT);
-}
-
-struct vcpu *
-vm_find_vcpu(struct vm *vm, uint32_t id)
-{
-	struct vcpu *vcpu;
-
-	if (vm == NULL)
-		return NULL;
-	rw_enter_read(&vm->vm_vcpu_lock);
-	SLIST_FOREACH(vcpu, &vm->vm_vcpu_list, vc_vcpu_link) {
-		if (vcpu->vc_id == id)
-			break;
-	}
-	rw_exit_read(&vm->vm_vcpu_lock);
-	return vcpu;
 }
 
 /*
@@ -1810,7 +1823,7 @@ vm_impl_init_vmx(struct vm *vm, struct proc *p)
 	vm->vm_map = &vm->vm_vmspace->vm_map;
 
 	/* Map the new map with an anon */
-	printf("%s: created vm_map @ %p\n", __func__, vm->vm_map);
+	DPRINTF("%s: created vm_map @ %p\n", __func__, vm->vm_map);
 	for (i = 0; i < vm->vm_nmemranges; i++) {
 		vmr = &vm->vm_memranges[i];
 		ret = uvm_share(vm->vm_map, vmr->vmr_gpa,
@@ -2327,7 +2340,6 @@ vcpu_writeregs_vmx(struct vcpu *vcpu, uint64_t regmask, int loadvmcs,
 		vcpu->vc_gueststate.vg_r15 = gprs[VCPU_REGS_R15];
 		vcpu->vc_gueststate.vg_rbp = gprs[VCPU_REGS_RBP];
 		vcpu->vc_gueststate.vg_rip = gprs[VCPU_REGS_RIP];
-
 		if (vmwrite(VMCS_GUEST_IA32_RIP, gprs[VCPU_REGS_RIP]))
 			goto errout;
 		if (vmwrite(VMCS_GUEST_IA32_RSP, gprs[VCPU_REGS_RSP]))
@@ -4473,7 +4485,6 @@ vm_run(struct vm_run_params *vrp)
 
 		if (copyout(&vcpu->vc_exit, vrp->vrp_exit,
 		    sizeof(struct vm_exit)) == EFAULT) {
-			printf("efault\n");
 			ret = EFAULT;
 		} else
 			ret = 0;
@@ -5200,8 +5211,6 @@ vmx_handle_intr(struct vcpu *vcpu)
 	}
 
 	vec = eii & 0xFF;
-	if (vec != 0x6b)
-		printf("vec: %x\n", vec);
 
 	/* XXX check "error valid" code in eii, abort if 0 */
 	idte=&idt[vec];
@@ -5354,8 +5363,6 @@ svm_handle_exit(struct vcpu *vcpu)
 		break;
 	case SVM_VMEXIT_NPF:
 		ret = svm_handle_np_fault(vcpu);
-//		if (ret == EAGAIN)
-//			update_rip = 1;
 		break;
 	case SVM_VMEXIT_CPUID:
 		ret = vmm_handle_cpuid(vcpu);
@@ -5448,8 +5455,6 @@ vmx_handle_exit(struct vcpu *vcpu)
 		break;
 	case VMX_EXIT_EPT_VIOLATION:
 		ret = vmx_handle_np_fault(vcpu);
-//		if (ret == EAGAIN)
-//			update_rip = 1;
 		break;
 	case VMX_EXIT_CPUID:
 		ret = vmm_handle_cpuid(vcpu);
@@ -5813,7 +5818,7 @@ vmx_fault_page(struct vcpu *vcpu, paddr_t gpa)
 	    PROT_READ | PROT_WRITE | PROT_EXEC);
 
 	if (ret)
-		printf("%s: uvm_fault returns %d, GPA=0x%llx, rip=0x%llx :(\n",
+		printf("%s: uvm_fault returns %d, GPA=0x%llx, rip=0x%llx\n",
 		    __func__, ret, (uint64_t)gpa, vcpu->vc_gueststate.vg_rip);
 
 	return (ret);
@@ -7238,7 +7243,6 @@ vcpu_run_svm(struct vcpu *vcpu, struct vm_run_params *vrp)
 				    vcpu->vc_exit.vei.vei_data;
 				vmcb->v_rax = vcpu->vc_gueststate.vg_rax;
 			}
-			break;
 		}
 	}
 
@@ -7278,7 +7282,7 @@ vcpu_run_svm(struct vcpu *vcpu, struct vm_run_params *vrp)
 
 		/* Handle vmd(8) injected interrupts */
 		/* Is there an interrupt pending injection? */
-		if (irq != 0xFFFF && vcpu->vc_irqready) {	
+		if (irq != 0xFFFF && vcpu->vc_irqready) {
 			vmcb->v_eventinj = (irq & 0xFF) | (1 << 31);
 			irq = 0xFFFF;
 		}

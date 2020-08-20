@@ -69,7 +69,6 @@ uint32_t _pcicfgrd32(int id, int reg) {
 }
 
 int pci_memh2(int, uint64_t, uint32_t, void *, void *);
-uint64_t mbar(uint64_t *, uint32_t, uint32_t);
 
 #define PAGE_MASK 0xFFF
 
@@ -200,8 +199,6 @@ mem_chkint(void)
 
 	for (i = 0; i < pci.pci_dev_ct; i++) {
 		pd = &ptd;
-		if (pd->flag == 0)
-			continue;
 		si.bus = pd->bus;
 		si.dev = pd->dev;
 		si.func = pd->fun;
@@ -288,13 +285,14 @@ pci_mkbar(uint64_t *base, uint32_t size, uint64_t maxbase)
  *  id: PCI device to add the BAR to (local count, eg if id == 4,
  *      this BAR is to be added to the VM's 5th PCI device)
  *  type: type of the BAR to add (PCI_MAPREG_TYPE_xxx)
+ *  size: Size of BAR area
  *  barfn: callback function invoked on BAR access
  *  cookie: cookie passed to barfn on access
  *
  * Returns 0 if the BAR was added successfully, 1 otherwise.
  */
 int
-pci_add_bar(uint8_t id, uint32_t type, uint32_t sz, void *barfn, void *cookie)
+pci_add_bar(uint8_t id, uint32_t type, uint32_t size, void *barfn, void *cookie)
 {
 	uint8_t bar_reg_idx, bar_ct;
 	uint64_t base = 0;
@@ -313,7 +311,7 @@ pci_add_bar(uint8_t id, uint32_t type, uint32_t sz, void *barfn, void *cookie)
 	if (type == (PCI_MAPREG_TYPE_MEM | PCI_MAPREG_MEM_TYPE_64BIT)) {
 		fprintf(stderr, "Adding 64-bit MMIO\n");
 		// Page align makes easier mapping
-		base = pci_mkbar(&pci.pci_next_mmio_bar, sz, VMM_PCI_MMIO_BAR_END);
+		base = pci_mkbar(&pci.pci_next_mmio_bar, size, VMM_PCI_MMIO_BAR_END);
 		if (base == 0)
 			return (1);
 
@@ -322,12 +320,12 @@ pci_add_bar(uint8_t id, uint32_t type, uint32_t sz, void *barfn, void *cookie)
 		pci.pci_devices[id].pd_barfunc[bar_ct] = barfn;
 		pci.pci_devices[id].pd_bar_cookie[bar_ct] = cookie;
 		pci.pci_devices[id].pd_bartype[bar_ct] = PCI_BAR_TYPE_MMIO;
-		pci.pci_devices[id].pd_barsize[bar_ct] = sz;
+		pci.pci_devices[id].pd_barsize[bar_ct] = size;
 		pci.pci_devices[id].pd_bar_ct++;
 		pci.pci_devices[id].pd_bartype[bar_ct+1] = PCI_BAR_TYPE_MMIO;
 	} else if (type == PCI_MAPREG_TYPE_MEM) {
 		// Page align makes easier mapping
-		base = pci_mkbar(&pci.pci_next_mmio_bar, sz, VMM_PCI_MMIO_BAR_END);
+		base = pci_mkbar(&pci.pci_next_mmio_bar, size, VMM_PCI_MMIO_BAR_END);
 		if (base == 0)
 			return (1);
 
@@ -336,10 +334,10 @@ pci_add_bar(uint8_t id, uint32_t type, uint32_t sz, void *barfn, void *cookie)
 		pci.pci_devices[id].pd_barfunc[bar_ct] = barfn;
 		pci.pci_devices[id].pd_bar_cookie[bar_ct] = cookie;
 		pci.pci_devices[id].pd_bartype[bar_ct] = PCI_BAR_TYPE_MMIO;
-		pci.pci_devices[id].pd_barsize[bar_ct] = sz;
+		pci.pci_devices[id].pd_barsize[bar_ct] = size;
 		pci.pci_devices[id].pd_bar_ct++;
 	} else if (type == PCI_MAPREG_TYPE_IO) {
-		base = pci_mkbar(&pci.pci_next_io_bar, sz, VMM_PCI_IO_BAR_END);
+		base = pci_mkbar(&pci.pci_next_io_bar, size, VMM_PCI_IO_BAR_END);
 		if (base == 0)
 			return (1);
 
@@ -351,12 +349,12 @@ pci_add_bar(uint8_t id, uint32_t type, uint32_t sz, void *barfn, void *cookie)
 		DPRINTF("%s: adding pci bar cookie for dev %d bar %d = %p",
 		    __progname, id, bar_ct, cookie);
 		pci.pci_devices[id].pd_bartype[bar_ct] = PCI_BAR_TYPE_IO;
-		pci.pci_devices[id].pd_barsize[bar_ct] = sz;
+		pci.pci_devices[id].pd_barsize[bar_ct] = size;
 		pci.pci_devices[id].pd_bar_ct++;
 	}
 
 	fprintf(stderr, "@@@ PCI_ADDBAR(%d, %d, %x, %x)\n",
-		bar_ct, type, pci.pci_devices[id].pd_cfg_space[bar_reg_idx], sz);
+		bar_ct, type, pci.pci_devices[id].pd_cfg_space[bar_reg_idx], size);
 
 	return (0);
 }
@@ -462,19 +460,6 @@ pci_add_device(uint8_t *id, uint16_t vid, uint16_t pid, uint8_t class,
 	return (0);
 }
 
-/* Allocate an aligned BAR address */
-uint64_t
-mbar(uint64_t *base, uint32_t size, uint32_t align)
-{
-	uint64_t mask = size-1;
-	uint64_t cbase;
-
-	cbase = (*base + mask) & ~mask;
-	*base = (*base + size + mask) & ~mask;
-	fprintf(stderr,"make mbar: %llx/%x\n", cbase, size);
-	return cbase;
-}
-
 void pci_add_pthru(struct vmd_vm *, int, int, int);
 
 #define PCIOCUNBIND	_IOWR('p', 9, struct pcisel)
@@ -508,6 +493,7 @@ ppt_csfn(int dir, uint8_t reg, uint8_t sz, uint32_t *data, void *cookie)
 {
 	struct pci_ptd *pd = cookie;
 	struct pci_dev *pdev;
+	uint32_t rwdata = *data;
 
 	pdev = &pci.pci_devices[pd->id];
 	fprintf(stderr, "@pciio: %c:%.2x %d %.8x\n", dir == VEI_DIR_IN ? 'r' : 'w', reg, sz, *data);
@@ -566,7 +552,6 @@ pci_add_pthru(struct vmd_vm *vm, int bus, int dev, int fun)
 	struct vm_barinfo bif;
 	uint32_t id_reg, subid_reg, class_reg, cmd_reg, intr_reg;
 	int i, rc;
-	uint8_t id;
 
 	/* Read physical PCI config space */
 	id_reg = ptd_conf_read(bus, dev, fun, PCI_ID_REG);
@@ -590,16 +575,16 @@ pci_add_pthru(struct vmd_vm *vm, int bus, int dev, int fun)
 		}
 	}
 #endif
-	pci_add_device(&id, PCI_VENDOR(id_reg), PCI_PRODUCT(id_reg),
-			PCI_CLASS(class_reg), PCI_SUBCLASS(class_reg),
-			PCI_VENDOR(subid_reg), PCI_PRODUCT(subid_reg),
-			1, NULL, NULL);
 	pd = &ptd;
-	pd->flag = PTD_VALID;
 	pd->bus = bus;
 	pd->dev = dev;
 	pd->fun = fun;
-	pd->id  = id;
+	pci_add_device(&pd->id, PCI_VENDOR(id_reg), PCI_PRODUCT(id_reg),
+			PCI_CLASS(class_reg), PCI_SUBCLASS(class_reg),
+			PCI_VENDOR(subid_reg), PCI_PRODUCT(subid_reg),
+			1, NULL, NULL);
+	/* Cache full class register */
+	_pcicfgwr32(pd->id, PCI_CLASS_REG, class_reg);
 
 	/* Get BARs of native device */
 	bif.seg = 0;

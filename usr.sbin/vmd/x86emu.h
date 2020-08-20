@@ -22,13 +22,15 @@ struct insn {
 	int dir;
 	int size;
 	int incr;
-  	int reg;
+	int reg;
 };
 
+/* decode mod-reg-rm byte */
 #define mrr_mm(x)  (((x) >> 6) & 3)
 #define mrr_ggg(x) (((x) >> 3) & 7)
 #define mrr_rrr(x) (((x) >> 0) & 7)
 
+/* decode scaled-index-base byte */
 #define sib_ss(x)  (((x) >> 6) & 3)
 #define sib_iii(x) (((x) >> 3) & 7)
 #define sib_bbb(x) (((x) >> 0) & 7)
@@ -155,7 +157,7 @@ enum {
 	REX_R    = 0x4,   /* mrr.ggg */
 	REX_W    = 0x8,   /* operand size=64-bit */
 
-	/* Prefix flags */
+	/* Opcode prefix flags */
 	FLG_REX  = 0x0001,  /* REX byte */
 	FLG_SEG  = 0x0002,  /* segment prefix */
 	FLG_OSZ  = 0x0004,  /* operand size */
@@ -163,12 +165,12 @@ enum {
 	FLG_LOCK = 0x0010,  /* lock */
 	FLG_REP  = 0x0020,  /* repz/repnz/rep */
 
-	/* Additional flags */
+	/* Additional opcode flags */
 	FLG_MRR  = 0x0100,  /* has mod-reg-rm byte */
 	FLG_GRP  = 0x0200,  /* opcode based on mrr.reg */
-	FLG_D64  = 0x0400,  /* default size = 64-bit */
-	FLG_NO64 = 0x0800,  /* invalid in 64-bit mode */
-	FLG_MEM  = 0x1000,  /* non-mrr memory */
+	FLG_MEM  = 0x0400,  /* non-mrr memory */
+	FLG_D64  = 0x0800,  /* default size = 64-bit */
+	FLG_NO64 = 0x1000,  /* invalid in 64-bit mode */
 };
 
 int dodis(uint8_t *, struct insn *ix, int mode);

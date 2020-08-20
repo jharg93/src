@@ -291,7 +291,6 @@ start_vm(struct vmd_vm *vm, int fd)
 	if (!(vm->vm_state & VM_STATE_RECEIVED))
 		create_memory_map(vcp);
 
-	fprintf(stderr, "---- alloc guest mem\n");
 	ret = alloc_guest_mem(vcp);
 
 	if (ret) {
@@ -860,7 +859,6 @@ create_memory_map(struct vm_create_params *vcp)
 {
 	size_t len, mem_bytes, mem_mb;
 
-	fprintf(stderr, "create memory map\n");
 	mem_mb = vcp->vcp_memranges[0].vmr_size;
 	vcp->vcp_nmemranges = 0;
 	if (mem_mb < 1 || mem_mb > VMM_MAX_VM_MEM_SIZE)
@@ -950,6 +948,7 @@ alloc_guest_mem(struct vm_create_params *vcp)
 
 			return (ret);
 		}
+
 		memset(p, 0, vmr->vmr_size);
 		vmr->vmr_va = (vaddr_t)p;
 	}

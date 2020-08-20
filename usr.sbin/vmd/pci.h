@@ -38,7 +38,6 @@ struct pci_ptd {
 	uint8_t dev;
 	uint8_t fun;
 	uint8_t id;
-	uint8_t flag;
 	uint32_t pending;
 	
 	struct {
@@ -92,8 +91,6 @@ struct pci_dev {
 	struct pci_ptd pd_ptd;
 };
 
-typedef struct pci_dev pcidev_t;
-
 struct pci {
 	uint8_t pci_dev_ct;
 	uint64_t pci_next_mmio_bar;
@@ -102,7 +99,7 @@ struct pci {
 	uint32_t pci_addr_reg;
 	uint32_t pci_data_reg;
 
-	pcidev_t pci_devices[PCI_CONFIG_MAX_DEV];
+	struct pci_dev pci_devices[PCI_CONFIG_MAX_DEV];
 };
 
 void pci_handle_address_reg(struct vm_run_params *);

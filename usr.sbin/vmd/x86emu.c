@@ -469,7 +469,7 @@ getb(struct istate *i) {
 	i->nib++;
 	return *i->pc++;
 }
-	
+
 /* Get operand size */
 static int
 osize(struct istate *i) {
@@ -485,7 +485,7 @@ osize(struct istate *i) {
 		return (i->flag & FLG_OSZ) ? SIZE_DWORD : SIZE_WORD;
 	}
 	return 0;
-}  
+}
 
 /* Get address size */
 static int
