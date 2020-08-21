@@ -465,7 +465,7 @@ struct istate {
 
 /* Get byte from code stream */
 static uint64_t
-getb(struct istate *i) {
+get8(struct istate *i) {
 	i->nib++;
 	return *i->pc++;
 }
@@ -511,10 +511,10 @@ decodeop(struct istate *i)
 	int op;
 
 	for(;;) {
-		op = getb(i);
+		op = get8(i);
 		if (op == 0x0f) {
 			/* Decode 2nd byte */
-			op = (op << 8) | getb(i);
+			op = (op << 8) | get8(i);
 			o  = hicodes[op & 0xFF];
 		} else {
 			o = locodes[op];
@@ -532,7 +532,7 @@ decodeop(struct istate *i)
 		else if (!(o.flag & (FLG_OSZ|FLG_ASZ|FLG_LOCK))) {
 			/* get Mod-Reg-RM byte */
 			if (i->flag & FLG_MRR)
-				i->mrr = getb(i);
+				i->mrr = get8(i);
 			/* Get operand and address size */
 			i->osz = osize(i);
 			i->asz = asize(i);
@@ -599,27 +599,27 @@ static uint64_t
 mkimm(struct istate *i, int sz, uint64_t val, const char *fmt) {
 	switch (sz) {
 	case SIZE_BYTE:
-		val = getb(i);
+		val = get8(i);
 		break;
 	case SIZE_WORD:
-		val = getb(i);
-		val |= (getb(i) << 8);
+		val = get8(i);
+		val |= (get8(i) << 8);
 		break;
 	case SIZE_DWORD:
-		val = getb(i);
-		val |= getb(i) << 8;
-		val |= getb(i) << 16;
-		val |= getb(i) << 24;
+		val = get8(i);
+		val |= get8(i) << 8;
+		val |= get8(i) << 16;
+		val |= get8(i) << 24;
 		break;
 	case SIZE_QWORD:
-		val = getb(i);
-		val |= getb(i) << 8;
-		val |= getb(i) << 16;
-		val |= getb(i) << 24;
-		val |= getb(i) << 32LL;
-		val |= getb(i) << 40LL;
-		val |= getb(i) << 48LL;
-		val |= getb(i) << 56LL;
+		val = get8(i);
+		val |= get8(i) << 8;
+		val |= get8(i) << 16;
+		val |= get8(i) << 24;
+		val |= get8(i) << 32LL;
+		val |= get8(i) << 40LL;
+		val |= get8(i) << 48LL;
+		val |= get8(i) << 56LL;
 		break;
 	default:
 		/* val already contains value */
@@ -644,7 +644,7 @@ mkea(struct istate *i, int sz) {
 	case SIZE_QWORD:
 		printf("(");
 		if (rrr == 4) {
-			i->sib = getb(i);
+			i->sib = get8(i);
 			rrr = sib_bbb(i->sib);
 			printf("%d,", 1 << sib_ss(i->sib));
 			mkreg(i, SIZE_QWORD, sib_iii(i->sib), REX_X);
@@ -668,7 +668,7 @@ mkea(struct istate *i, int sz) {
 	case SIZE_DWORD:
 		printf("(");
 		if (rrr == 4) {
-			i->sib = getb(i);
+			i->sib = get8(i);
 			rrr = sib_bbb(i->sib);
 			printf("%d,", 1 << sib_ss(i->sib));
 			mkreg(i, SIZE_DWORD, sib_iii(i->sib), REX_X);

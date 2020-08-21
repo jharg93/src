@@ -54,7 +54,7 @@ struct pci_ptd ptd;
 
 uint32_t ptd_conf_read(int, int, int, uint32_t);
 void ptd_conf_write(int, int, int, uint32_t reg, uint32_t val);
-void io_copy(void *, void *, int);
+void io_copy(void *, const void *, int);
 int mem_chkint(void);
 
 /* Some helper functions */
@@ -83,10 +83,12 @@ void do_pio(int, int, int, int, uint32_t *);
 /* Map/Unmap a MMIO Bar address */
 void *
 mapbar(int bar, uint64_t base, uint64_t size) {
-	void *va;
+	uint8_t *va;
 
+	if (!base || !size)
+		return NULL;
 	size = (size + PAGE_MASK) & ~PAGE_MASK;
-	va = mmap(NULL, size, PROT_READ|PROT_WRITE, MAP_SHARED, env->vmd_fd, base);
+	va = mmap(NULL, size, PROT_READ|PROT_WRITE, MAP_SHARED, env->vmd_fd, base & ~PAGE_MASK);
 	if (va == (void *)-1ULL) {
 		fprintf(stderr, "Unable to mmap bar: %.16llx/%.8llx\n",
 			base, size);
@@ -94,7 +96,7 @@ mapbar(int bar, uint64_t base, uint64_t size) {
 	}
 	fprintf(stderr, "0x%.2x: Mapped bar: %.16llx/%.8llx to %p\n",
 		(bar * 4) + 0x10, base, size, va);
-	return va;
+	return va + (base & PAGE_MASK);
 }
 
 void
@@ -214,15 +216,17 @@ mem_chkint(void)
 }
 
 void
-io_copy(void *dest, void *src, int size) {
-	if (size == 1) 
-		*(uint8_t *)dest = *(uint8_t *)src;
+io_copy(void *dest, const void *src, int size) {
+	memcpy(dest, src, size);
+	return;
+	if (size == 1)
+		*(uint8_t *)dest = *(const uint8_t *)src;
 	else if (size == 2)
-		*(uint16_t *)dest = *(uint16_t *)src;
+		*(uint16_t *)dest = *(const uint16_t *)src;
 	else if (size == 4)
-		*(uint32_t *)dest = *(uint32_t *)src;
+		*(uint32_t *)dest = *(const uint32_t *)src;
 	else if (size == 8)
-		*(uint64_t *)dest = *(uint64_t *)src;
+		*(uint64_t *)dest = *(const uint64_t *)src;
 }
 
 /*
@@ -278,9 +282,6 @@ pci_mkbar(uint64_t *base, uint32_t size, uint64_t maxbase)
  * Adds a BAR for the PCI device 'id'. On access, 'barfn' will be
  * called, and passed 'cookie' as an identifier.
  *
- * BARs are fixed size, meaning all I/O BARs requested have the
- * same size and all MMIO BARs have the same size.
- *
  * Parameters:
  *  id: PCI device to add the BAR to (local count, eg if id == 4,
  *      this BAR is to be added to the VM's 5th PCI device)
@@ -309,13 +310,11 @@ pci_add_bar(uint8_t id, uint32_t type, uint32_t size, void *barfn, void *cookie)
 	/* Compute BAR address and add */
 	bar_reg_idx = (PCI_MAPREG_START + (bar_ct * 4)) / 4;
 	if (type == (PCI_MAPREG_TYPE_MEM | PCI_MAPREG_MEM_TYPE_64BIT)) {
-		fprintf(stderr, "Adding 64-bit MMIO\n");
-		// Page align makes easier mapping
 		base = pci_mkbar(&pci.pci_next_mmio_bar, size, VMM_PCI_MMIO_BAR_END);
 		if (base == 0)
 			return (1);
 
-		pci.pci_devices[id].pd_cfg_space[bar_reg_idx] = 
+		pci.pci_devices[id].pd_cfg_space[bar_reg_idx] =
 		    PCI_MAPREG_MEM_ADDR(base) | PCI_MAPREG_MEM_TYPE_64BIT;
 		pci.pci_devices[id].pd_barfunc[bar_ct] = barfn;
 		pci.pci_devices[id].pd_bar_cookie[bar_ct] = cookie;
@@ -325,12 +324,11 @@ pci_add_bar(uint8_t id, uint32_t type, uint32_t size, void *barfn, void *cookie)
 		pci.pci_devices[id].pd_barsize[bar_ct+1] = 0;
 		pci.pci_devices[id].pd_bar_ct+=2;
 	} else if (type == PCI_MAPREG_TYPE_MEM) {
-		// Page align makes easier mapping
 		base = pci_mkbar(&pci.pci_next_mmio_bar, size, VMM_PCI_MMIO_BAR_END);
 		if (base == 0)
 			return (1);
 
-		pci.pci_devices[id].pd_cfg_space[bar_reg_idx] = 
+		pci.pci_devices[id].pd_cfg_space[bar_reg_idx] =
 		    PCI_MAPREG_MEM_ADDR(base);
 		pci.pci_devices[id].pd_barfunc[bar_ct] = barfn;
 		pci.pci_devices[id].pd_bar_cookie[bar_ct] = cookie;
@@ -342,13 +340,11 @@ pci_add_bar(uint8_t id, uint32_t type, uint32_t size, void *barfn, void *cookie)
 		if (base == 0)
 			return (1);
 
-		pci.pci_devices[id].pd_cfg_space[bar_reg_idx] = 
+		pci.pci_devices[id].pd_cfg_space[bar_reg_idx] =
 		    PCI_MAPREG_IO_ADDR(base) |
 		    PCI_MAPREG_TYPE_IO;
 		pci.pci_devices[id].pd_barfunc[bar_ct] = barfn;
 		pci.pci_devices[id].pd_bar_cookie[bar_ct] = cookie;
-		DPRINTF("%s: adding pci bar cookie for dev %d bar %d = %p",
-		    __progname, id, bar_ct, cookie);
 		pci.pci_devices[id].pd_bartype[bar_ct] = PCI_BAR_TYPE_IO;
 		pci.pci_devices[id].pd_barsize[bar_ct] = size;
 		pci.pci_devices[id].pd_bar_ct++;
@@ -823,7 +819,8 @@ pci_handle_data_reg(struct vm_run_params *vrp)
 		 * writes and copy data to config space registers.
 		 */
 		if (o != PCI_EXROMADDR_0)
-			get_input_data(vei, &pci.pci_devices[d].pd_cfg_space[o/4]);
+			get_input_data(vei,
+			    &pci.pci_devices[d].pd_cfg_space[o / 4]);
 	} else {
 		/*
 		 * vei_dir == VEI_DIR_IN : in instruction
