@@ -321,8 +321,9 @@ pci_add_bar(uint8_t id, uint32_t type, uint32_t size, void *barfn, void *cookie)
 		pci.pci_devices[id].pd_bar_cookie[bar_ct] = cookie;
 		pci.pci_devices[id].pd_bartype[bar_ct] = PCI_BAR_TYPE_MMIO;
 		pci.pci_devices[id].pd_barsize[bar_ct] = size;
-		pci.pci_devices[id].pd_bar_ct++;
 		pci.pci_devices[id].pd_bartype[bar_ct+1] = PCI_BAR_TYPE_MMIO;
+		pci.pci_devices[id].pd_barsize[bar_ct+1] = 0;
+		pci.pci_devices[id].pd_bar_ct+=2;
 	} else if (type == PCI_MAPREG_TYPE_MEM) {
 		// Page align makes easier mapping
 		base = pci_mkbar(&pci.pci_next_mmio_bar, size, VMM_PCI_MMIO_BAR_END);
@@ -353,7 +354,7 @@ pci_add_bar(uint8_t id, uint32_t type, uint32_t size, void *barfn, void *cookie)
 		pci.pci_devices[id].pd_bar_ct++;
 	}
 
-	fprintf(stderr, "@@@ PCI_ADDBAR(%d, %d, %x, %x)\n",
+	log_warnx("%s: PCI_ADDBAR(%d, %d, %x, %x)", __progname,
 		bar_ct, type, pci.pci_devices[id].pd_cfg_space[bar_reg_idx], size);
 
 	return (0);
@@ -421,7 +422,7 @@ pci_add_device(uint8_t *id, uint16_t vid, uint16_t pid, uint8_t class,
     uint8_t subclass, uint16_t subsys_vid, uint16_t subsys_id,
     uint8_t irq_needed, pci_cs_fn_t csfunc, void *cookie)
 {
-	log_warnx("%s: add_pci: %x.%x.%x\n", __progname, vid, pid, class);
+	log_warnx("%s: add_pci: %x.%x.%x", __progname, vid, pid, class);
 
 	/* Exceeded max devices? */
 	if (pci.pci_dev_ct >= PCI_CONFIG_MAX_DEV)
@@ -613,6 +614,8 @@ pci_add_pthru(struct vmd_vm *vm, int bus, int dev, int fun)
 			pci_add_bar(pd->id, type, pd->barinfo[i].size, 
 				    ppt_mmiobar, PTD_DEVID(pd->id, i));
 			pd->barinfo[i].va = mapbar(i, pd->barinfo[i].addr, pd->barinfo[i].size);
+			if (type == (PCI_MAPREG_TYPE_MEM | PCI_MAPREG_MEM_TYPE_64BIT))
+				i++;
 		}
 		else if (PCI_MAPREG_TYPE(type) == PCI_MAPREG_TYPE_IO) {
 			/* This will get callback via pci_handle_io */

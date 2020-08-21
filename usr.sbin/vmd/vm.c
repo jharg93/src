@@ -1610,7 +1610,9 @@ register_mem(uint64_t base, uint32_t len, iocb_t handler, void *cookie)
 {
 	struct iohandler *mem;
 
-	//fprintf(stderr, "@@@ Registering mem region: %llx - %llx\n", base, base+len-1);
+	if (!base)
+		return;
+	fprintf(stderr, "@@@ Registering mem region: %llx - %llx\n", base, base+len-1);
 	TAILQ_FOREACH(mem, &memh, next) {
 		if (base >= mem->start && base+len <= mem->end) {
 			fprintf(stderr,"already registered\n");
@@ -1630,7 +1632,9 @@ unregister_mem(uint64_t base)
 {
 	struct iohandler *mem, *tmp;
 
-	//fprintf(stderr,"@@@ Unregistering base: %llx\n", base);
+	if (!base)
+		return;
+	fprintf(stderr,"@@@ Unregistering base: %llx\n", base);
 	TAILQ_FOREACH_SAFE(mem, &memh, next, tmp) {
 		if (mem->start == base) {
 			fprintf(stderr, "  removed:%llx-%llx\n", mem->start, mem->end);
