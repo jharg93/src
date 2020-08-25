@@ -27,6 +27,7 @@
 
 #include <string.h>
 #include <unistd.h>
+#include <stdlib.h>
 #include <fcntl.h>
 #include "vmd.h"
 #include "pci.h"
@@ -75,8 +76,13 @@ int pci_memh2(int, uint64_t, uint32_t, void *, void *);
 void *mapbar(int, uint64_t, uint64_t);
 void unmapbar(void *, uint64_t);
 void showremap(struct pci_ptd *);
-void remap_io(int, int, int, int *, int *);
 void do_pio(int, int, int, int, uint32_t *);
+
+static struct pci_ptd *
+find_ptd(int devid)
+{
+	return pci.pci_devices[devid].pd_cookie;
+}
 
 /* Map/Unmap a MMIO Bar address */
 void *
@@ -121,14 +127,6 @@ showremap(struct pci_ptd *pd)
 				pd->barinfo[i].va);
 		}
 	}
-}
-
-/* Get remapped addresses for host/guest */
-void
-remap_io(int dev, int bar, int reg, int *hport, int *gport)
-{
-	*hport = ptd.barinfo[bar].addr + reg;
-	*gport = (_pcicfgrd32(dev, (bar * 4) + 0x10) & ~0x1) + reg;
 }
 
 void
@@ -198,7 +196,9 @@ mem_chkint(void)
 	int rc, i;
 
 	for (i = 0; i < pci.pci_dev_ct; i++) {
-		pd = &ptd;
+		pd = find_ptd(i);
+		if (pd == NULL)
+			continue;
 		si.bus = pd->bus;
 		si.dev = pd->dev;
 		si.func = pd->fun;
@@ -234,12 +234,15 @@ io_copy(void *dest, const void *src, int size) {
 int
 pci_memh2(int dir, uint64_t base, uint32_t size, void *data, void *cookie)
 {
+	uint8_t devid = PTD_DEV(cookie);
+	uint8_t barid = PTD_BAR(cookie);
 	uint64_t off;
-	uint8_t barid = (uint8_t)(uintptr_t)cookie;
-	struct pci_ptd *pd;
 	uint8_t *va;
+	struct pci_ptd *pd;
 
-	pd = &ptd;
+	pd = find_ptd(devid);
+	if (pd == NULL)
+		return -1;
 	off = base & (pd->barinfo[barid].size - 1);
 	va = pd->barinfo[barid].va;
 	if (va == NULL) {
@@ -438,7 +441,6 @@ pci_add_device(uint8_t *id, uint16_t vid, uint16_t pid, uint8_t class,
 
 	pci.pci_devices[*id].pd_csfunc = csfunc;
 	pci.pci_devices[*id].pd_cookie = cookie;
-	pci.pci_devices[*id].pd_ptd.id = 0xff;
 
 	if (irq_needed) {
 		pci.pci_devices[*id].pd_irq =
@@ -498,13 +500,19 @@ ppt_csfn(int dir, uint8_t reg, uint8_t sz, uint32_t *data, void *cookie)
 int
 ppt_iobar(int dir, uint16_t reg, uint32_t *data, uint8_t *intr, void *cookie, uint8_t size)
 {
-	uint8_t barid = PTD_BAR(cookie);
+	struct pci_ptd *pd;
 	uint8_t devid = PTD_DEV(cookie);
-	int hp, gp;
+	uint8_t barid = PTD_BAR(cookie);
+	int hport;
 
 	*intr = 0xFF;
-	remap_io(devid, barid, reg, &hp, &gp);
-	do_pio(1, dir, hp, size, data);
+
+	/* Remap guest port to host port */
+	pd = find_ptd(devid);
+	if (pd == NULL)
+		return -1;
+	hport = pd->barinfo[barid].addr + reg;
+	do_pio(1, dir, hport, size, data);
 	return 0;
 }
 
@@ -525,6 +533,10 @@ pci_add_pthru(struct vmd_vm *vm, int bus, int dev, int fun)
 	struct vm_barinfo bif;
 	uint32_t id_reg, subid_reg, class_reg, cmd_reg, intr_reg;
 	int i, rc;
+
+	pd = malloc(sizeof(*pd));
+	if (pd == NULL)
+		return;
 
 	/* Read physical PCI config space */
 	id_reg = ptd_conf_read(bus, dev, fun, PCI_ID_REG);
@@ -548,16 +560,17 @@ pci_add_pthru(struct vmd_vm *vm, int bus, int dev, int fun)
 		}
 	}
 #endif
-	pd = &ptd;
-	pd->bus = bus;
-	pd->dev = dev;
-	pd->fun = fun;
+
 	pci_add_device(&pd->id, PCI_VENDOR(id_reg), PCI_PRODUCT(id_reg),
 			PCI_CLASS(class_reg), PCI_SUBCLASS(class_reg),
 			PCI_VENDOR(subid_reg), PCI_PRODUCT(subid_reg),
-			1, NULL, NULL);
+			1, NULL, pd);
+
 	/* Cache full class register */
 	_pcicfgwr32(pd->id, PCI_CLASS_REG, class_reg);
+	pd->bus = bus;
+	pd->dev = dev;
+	pd->fun = fun;
 
 	/* Get BARs of native device */
 	bif.seg = 0;
@@ -730,8 +743,8 @@ pci_handle_data_reg(struct vm_run_params *vrp)
 	f = (pci.pci_addr_reg >> 8) & 0x7;
 	o = (pci.pci_addr_reg & 0xfc);
 	
-	pd = &ptd;
-	if ((o == 0x04 || o == 0x08 || o == 0x34 || o >= 0x40) && (pd->id == d)) {
+	pd = find_ptd(d);
+	if ((o == 0x04 || o == 0x08 || o == 0x34 || o >= 0x40) && (pd != NULL)) {
 		/* Passthrough PCI Cfg Space */
 		if (vei->vei.vei_dir == VEI_DIR_IN) {
 			data = ptd_conf_read(pd->bus, pd->dev, pd->fun, o);

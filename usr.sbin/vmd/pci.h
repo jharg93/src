@@ -51,7 +51,6 @@ struct pci_ptd {
 struct pci_dev {
 	union {
 		uint32_t pd_cfg_space[PCI_CONFIG_SPACE_SIZE / 4];
-
 		struct {
 			uint16_t pd_vid;
 			uint16_t pd_did;
@@ -87,8 +86,6 @@ struct pci_dev {
 	void *pd_barfunc[PCI_MAX_BARS];
 	void *pd_bar_cookie[PCI_MAX_BARS];
 	void *pd_cookie;
-	
-	struct pci_ptd pd_ptd;
 };
 
 struct pci {
