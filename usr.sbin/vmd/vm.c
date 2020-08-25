@@ -1067,7 +1067,8 @@ init_emulated_hw(struct vmop_create_params *vmc, int child_cdrom,
 	/* Initialize virtio devices */
 	virtio_init(current_vm, child_cdrom, child_disks, child_taps);
 
-	for (i = 0; i < vcp->vcp_npcis; i++) {
+	/* Add Passthrough Devices */
+	for (i = 0; i < (int)vcp->vcp_npcis; i++) {
 		int bus = (vcp->vcp_pcis[i] >> 8);
 		int dev = (vcp->vcp_pcis[i] >> 3) & 0x1F;
 		int fun = (vcp->vcp_pcis[i] >> 0) & 0x7;

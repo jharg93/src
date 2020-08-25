@@ -5744,10 +5744,11 @@ svm_fault_page(struct vcpu *vcpu, paddr_t gpa)
 
 	vcpu->vc_exit.vee.vee_gpa = gpa;
 	vcpu->vc_exit.vee.vee_fault_type = VEE_FAULT_PROTECT;
+#if 0
 	if ((gpa >= VMM_PCI_MMIO_BAR_BASE && gpa <= VMM_PCI_MMIO_BAR_END) || fault_type == VM_FAULT_PROTECT) {
 		return (EAGAIN);
 	}
-
+#endif
 	ret = uvm_fault(vcpu->vc_parent->vm_map, gpa, fault_type,
 	    PROT_READ | PROT_WRITE | PROT_EXEC);
 	if (ret)

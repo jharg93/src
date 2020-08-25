@@ -470,7 +470,7 @@ get8(struct istate *i) {
 	return *i->pc++;
 }
 
-/* Get operand size */
+/* Get operand size (16/32/64-bit) */
 static int
 osize(struct istate *i) {
 	switch (i->mode) {
@@ -487,7 +487,7 @@ osize(struct istate *i) {
 	return 0;
 }
 
-/* Get address size */
+/* Get address size (16/32/64-bit) */
 static int
 asize(struct istate *i) {
 	switch (i->mode) {
@@ -693,7 +693,7 @@ mkea(struct istate *i, int sz) {
 	return 0;
 }
 
-/* Decode opcode argument. Return register if applicable */
+/* Decode opcode argument. Return register/immediate if applicable */
 static uint32_t
 decodearg(struct istate *i, int arg) {
 	int tt, sz, vv;
@@ -741,6 +741,7 @@ sz(int arg) {
 	return 0;
 }
 
+/* Map X86 reg to vmm reg */
 static int vmmreg[] = {
 	VCPU_REGS_RAX,
 	VCPU_REGS_RCX,
@@ -764,7 +765,6 @@ static int vmmreg[] = {
 	VCPU_REGS_RDI, /* dil */
 };
 
-/* Map X86 reg to vmm reg */
 static int
 Vreg(int arg) {
 	if ((arg & VAL_MASK) < 20)
@@ -783,16 +783,21 @@ dodis(uint8_t *ib, struct insn *ix, int mode) {
 	struct opcode o;
 	int a0, a1;
 
+	/* Get opcode */
 	i.pc = ib;
 	i.mode = mode;
 	o = decodeop(&i);
 	printf("%c%c dis: %.2x %.2x %.2x %.2x | %-6s", 
 		(i.osz >> 16), (i.asz >> 16), i.seg, i.rep, i.rex, i.op, o.mnem);
+
+	/* Decode opcode arguments to register/immed/etc */
 	a0 = decodearg(&i, o.arg0); 
 	a1 = decodearg(&i, o.arg1); 
 	decodearg(&i, o.arg2); 
 	printf(" : %d\n", i.nib);
 
+	/* Convert to format needed by memhandler.  # of instruction bytes, register to
+         * read/write and size */
 	if (strncmp(o.mnem, "mov", 3))
 		return 0;
 	memset(ix, 0, sizeof(*ix));

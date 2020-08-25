@@ -72,8 +72,6 @@ int pci_memh2(int, uint64_t, uint32_t, void *, void *);
 
 #define PAGE_MASK 0xFFF
 
-void dump(void *, int);
-
 void *mapbar(int, uint64_t, uint64_t);
 void unmapbar(void *, uint64_t);
 void showremap(struct pci_ptd *);
@@ -515,27 +513,6 @@ ppt_mmiobar(int dir, uint32_t ofs, uint32_t *data)
 {
 	fprintf(stderr,"mmiobar: %d.%x\n", dir, ofs);
 	return 0;
-}
-
-void
-dump(void *ptr, int len)
-{
-	int i, j, c;
-	unsigned char *b = ptr;
-
-	for (i = 0; i < len; i+=16) {
-		fprintf(stderr,"%.4x ", i);
-		for (j = 0; j < 16; j++) {
-			fprintf(stderr,"%.2x ", b[i+j]);
-		}
-		fprintf(stderr,"  ");
-		for (j = 0; j < 16; j++) {
-			c = b[i+j];
-			if (c < ' ' || c > 'z') c = '.';
-			fprintf(stderr,"%c", c);
-		}
-		fprintf(stderr,"\n");
-	}
 }
 
 /*
