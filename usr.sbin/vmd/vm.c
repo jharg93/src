@@ -994,7 +994,6 @@ vmm_create_vm(struct vm_create_params *vcp)
 	return (0);
 }
 
-void pci_add_pthru(struct vmd_vm *vm, int bus, int dev, int fun);
 /*
  * init_emulated_hw
  *
@@ -1072,7 +1071,7 @@ init_emulated_hw(struct vmop_create_params *vmc, int child_cdrom,
 		int bus = (vcp->vcp_pcis[i] >> 8);
 		int dev = (vcp->vcp_pcis[i] >> 3) & 0x1F;
 		int fun = (vcp->vcp_pcis[i] >> 0) & 0x7;
-		pci_add_pthru(current_vm, bus, dev, fun);
+		pci_add_pthru(bus, dev, fun);
 	}
 }
 /*
@@ -1686,9 +1685,10 @@ vcpu_exit_eptviolation(struct vm_run_params *vrp)
 	uint64_t gip, gpa;
 	uint8_t instr[16] = { 0 };
 	struct vm_rwregs_params vrwp = { 0 };
-	uint64_t *rax;
+	uint64_t *regrw;
 	struct insn ix;
 
+	/* Read instruction bytes that caused page fault */
 	translate_gva(ve, ve->vrs.vrs_gprs[VCPU_REGS_RIP], &gip, PROT_READ);
 	read_mem(gip, instr, sizeof(instr));
 	fprintf(stderr, "===============\nept violation: %llx  rip:0x%llx %.2x %.2x %.2x %.2x %.2x\n",
@@ -1723,13 +1723,14 @@ vcpu_exit_eptviolation(struct vm_run_params *vrp)
 	vrwp.vrwp_regs = ve->vrs;
 	gpa = ve->vee.vee_gpa;
 
+	/* Decode instruction and get # of bytes, size register for read/write */
 	memset(&ix, 0, sizeof(ix));
 	dodis(instr, &ix, ve->vrs.vrs_sregs[VCPU_REGS_CS].vsi_ar & 0x2000 ?
 		SIZE_QWORD : SIZE_DWORD);
 	if (ix.incr && (gpa >= VMM_PCI_MMIO_BAR_BASE && gpa <= VMM_PCI_MMIO_BAR_END)) {
-		rax = &vrwp.vrwp_regs.vrs_gprs[ix.reg];
-		mem_handler(ix.dir, gpa, ix.size, rax);
-		fprintf(stderr, "memhandler : %.8llx %d\n", *rax, ix.incr);
+		regrw = &vrwp.vrwp_regs.vrs_gprs[ix.reg];
+		mem_handler(ix.dir, gpa, ix.size, regrw);
+		fprintf(stderr, "memhandler : %.16llx %d\n", (uint64_t)*regrw, ix.incr);
 		/* skip this instruction when returning to vm */
 		vrwp.vrwp_regs.vrs_gprs[VCPU_REGS_RIP] += ix.incr;
 		if (ioctl(env->vmd_fd, VMM_IOC_WRITEREGS, &vrwp))

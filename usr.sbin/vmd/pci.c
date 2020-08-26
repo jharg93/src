@@ -48,21 +48,8 @@ const uint8_t pci_pic_irqs[PCI_MAX_PIC_IRQS] = {3, 5, 6, 7, 9, 10, 11, 12,
 #define PTD_BAR(x)       ((uintptr_t)(x) & 0xFF)
 #define PTD_DEV(x)       ((uintptr_t)(x) >> 8)
 
-uint32_t ptd_conf_read(int, int, int, uint32_t);
-void ptd_conf_write(int, int, int, uint32_t reg, uint32_t val);
 void io_copy(void *, const void *, int);
 int mem_chkint(void);
-
-/* Some helper functions */
-void	 _pcicfgwr32(int, int, uint32_t);
-uint32_t _pcicfgrd32(int, int);
-
-void _pcicfgwr32(int id, int reg, uint32_t data) {
-  pci.pci_devices[id].pd_cfg_space[reg/4] = data;
-}
-uint32_t _pcicfgrd32(int id, int reg) {
-  return pci.pci_devices[id].pd_cfg_space[reg/4];
-}
 
 int pci_memh2(int, uint64_t, uint32_t, void *, void *);
 
@@ -72,6 +59,8 @@ int pci_memh2(int, uint64_t, uint32_t, void *, void *);
 static struct vm_ptdpci *
 ptd_lookup(int devid)
 {
+	if (devid >= pci.pci_dev_ct)
+		return NULL;
 	return pci.pci_devices[devid].pd_cookie;
 }
 
@@ -134,9 +123,9 @@ ptd_pio(int type, int dir, int port, int size, uint32_t *data)
 	fprintf(stderr, "pio: rc=%d, %d/%.4x %.8x\n", rc, dir, port, *data);
 }
 
-/* Passthrough PCI config read/write */
-uint32_t
-ptd_conf_read(int bus, int dev, int func, uint32_t reg)
+/* Passthrough PCI config read */
+static uint32_t
+ptd_conf_read(uint8_t bus, uint8_t dev, uint8_t func, uint32_t reg)
 {
 	struct vm_pciio pio;
 
@@ -150,8 +139,9 @@ ptd_conf_read(int bus, int dev, int func, uint32_t reg)
 	return pio.val;
 }
 
-void
-ptd_conf_write(int bus, int dev, int func, uint32_t reg, uint32_t val)
+/* Passthrough PCI config write */
+static void
+ptd_conf_write(uint8_t bus, uint8_t dev, uint8_t func, uint32_t reg, uint32_t val)
 {
 	struct vm_pciio pio;
 
@@ -184,8 +174,7 @@ mem_chkint(void)
 		rc = ioctl(env->vmd_fd, VMM_IOC_GETINTR, pd);
 		if (pd->pending != pending) {
 			fprintf(stderr, "pend:%d %d %d\n", pending, pd->pending, rc);
-			intr = pci.pci_devices[pd->id].pd_irq;
-			return intr;
+			return pci_get_dev_irq(pd->id);
 		}
 	}
 	return intr;
@@ -329,7 +318,7 @@ pci_add_bar(uint8_t id, uint32_t type, uint32_t size, void *barfn, void *cookie)
 		pci.pci_devices[id].pd_bar_ct++;
 	}
 
-	log_warnx("%s: PCI_ADDBAR(%d, %d, %x, %x)", __progname,
+	log_info("%s: PCI_ADDBAR(%d, %d, %x, %x)", __progname,
 		bar_ct, type, pci.pci_devices[id].pd_cfg_space[bar_reg_idx], size);
 
 	return (0);
@@ -397,7 +386,7 @@ pci_add_device(uint8_t *id, uint16_t vid, uint16_t pid, uint8_t class,
     uint8_t subclass, uint16_t subsys_vid, uint16_t subsys_id,
     uint8_t irq_needed, pci_cs_fn_t csfunc, void *cookie)
 {
-	log_warnx("%s: add_pci: %x.%x.%x", __progname, vid, pid, class);
+	log_info("%s: add_pci: %x.%x.%x", __progname, vid, pid, class);
 
 	/* Exceeded max devices? */
 	if (pci.pci_dev_ct >= PCI_CONFIG_MAX_DEV)
@@ -435,20 +424,7 @@ pci_add_device(uint8_t *id, uint16_t vid, uint16_t pid, uint8_t class,
 	return (0);
 }
 
-void pci_add_pthru(struct vmd_vm *, int, int, int);
-
 #define PCIOCUNBIND	_IOWR('p', 9, struct pcisel)
-
-static int
-ptdt_csfn(int dir, uint8_t reg, uint8_t sz, uint32_t *data, void *cookie)
-{
-	struct vm_ptdpci *pd = cookie;
-	struct pci_dev *pdev;
-
-	pdev = &pci.pci_devices[pd->id];
-	fprintf(stderr, "@pciio: %c:%.2x %d %.8x\n", dir == VEI_DIR_IN ? 'r' : 'w', reg, sz, *data);
-	return 0;
-}
 
 /* Callback for I/O ports. Map to new I/O port and do it */
 static int
@@ -481,7 +457,7 @@ ptd_mmiobar(int dir, uint32_t ofs, uint32_t *data)
  * Add Passthrough PCI device to VMM PCI table
  */
 void
-pci_add_pthru(struct vmd_vm *vm, int bus, int dev, int fun)
+pci_add_pthru(int bus, int dev, int fun)
 {
 	struct vm_ptdpci *pd;
 	uint32_t id_reg, subid_reg, class_reg, cmd_reg, intr_reg;
@@ -496,6 +472,7 @@ pci_add_pthru(struct vmd_vm *vm, int bus, int dev, int fun)
 	}
 #endif
 
+	/* Allocate Passthrough device */
 	pd = malloc(sizeof(*pd));
 	if (pd == NULL)
 		return;
@@ -514,17 +491,11 @@ pci_add_pthru(struct vmd_vm *vm, int bus, int dev, int fun)
 	cmd_reg = ptd_conf_read(bus, dev, fun, PCI_COMMAND_STATUS_REG);
 	intr_reg = ptd_conf_read(bus, dev, fun, PCI_INTERRUPT_REG);
 
-	fprintf(stderr, "intr: pin:%.2x line:%.2x\n",
-		PCI_INTERRUPT_PIN(intr_reg), PCI_INTERRUPT_LINE(intr_reg));
-	ptd_conf_write(bus, dev, fun, 0x4, cmd_reg & ~(PCI_COMMAND_IO_ENABLE|PCI_COMMAND_MEM_ENABLE));
-
+	/* Add device to guest */
 	pci_add_device(&pd->id, PCI_VENDOR(id_reg), PCI_PRODUCT(id_reg),
 			PCI_CLASS(class_reg), PCI_SUBCLASS(class_reg),
 			PCI_VENDOR(subid_reg), PCI_PRODUCT(subid_reg),
 			1, NULL, pd);
-
-	/* Cache full class register */
-	_pcicfgwr32(pd->id, PCI_CLASS_REG, class_reg);
 
 	/* Get BARs of native device */
 	rc = ioctl(env->vmd_fd, VMM_IOC_BARINFO, pd);
@@ -664,8 +635,7 @@ pci_handle_data_reg(struct vm_run_params *vrp)
 {
 	struct vm_exit *vei = vrp->vrp_exit;
 	uint8_t b, d, f, o, baridx, ofs, sz;
-	uint32_t data, barval, barsize, bartype;
-	uint64_t wrdata;
+	uint32_t barval, barsize, bartype;
 	int ret;
 	pci_cs_fn_t csfunc;
 	struct vm_ptdpci *pd;
@@ -691,21 +661,15 @@ pci_handle_data_reg(struct vm_run_params *vrp)
 
 	/* Do passthrough PCI config space read/write */
 	pd = ptd_lookup(d);
-	if ((o == 0x04 || o == 0x08 || o == 0x34 || o >= 0x40) && (pd != NULL)) {
+	if ((o == PCI_COMMAND_STATUS_REG || o == PCI_CLASS_REG || 
+	     o == PCI_CAPLISTPTR_REG || o >= 0x40) && 
+	    (pd != NULL)) {
 		if (vei->vei.vei_dir == VEI_DIR_IN) {
-			data = ptd_conf_read(pd->bus, pd->dev, pd->func, o);
-			_pcicfgwr32(d, o, data);
+			vei->vei.vei_data = ptd_conf_read(pd->bus, pd->dev, pd->func, o);
 		}
 		else {
-			data = vei->vei.vei_data;
-			ptd_conf_write(pd->bus, pd->dev, pd->func, o, data);
+			ptd_conf_write(pd->bus, pd->dev, pd->func, o, vei->vei.vei_data);
 		}
-	}
-
-	wrdata = vei->vei.vei_data;
-	data = 0;
-	if (d < pci.pci_dev_ct && !b && !f) {
-		data = _pcicfgrd32(d, o);
 	}
 
 	csfunc = pci.pci_devices[d].pd_csfunc;
@@ -720,7 +684,7 @@ pci_handle_data_reg(struct vm_run_params *vrp)
 	/* No config space function, fallback to default simple r/w impl. */
 
 	o += ofs;
-	
+
 	/*
 	 * vei_dir == VEI_DIR_OUT : out instruction
 	 *
@@ -743,6 +707,8 @@ pci_handle_data_reg(struct vm_run_params *vrp)
 				vei->vei.vei_data |= (barval & ~PCI_MAPREG_IO_ADDR_MASK);
 			else {
 				vei->vei.vei_data |= (barval & ~PCI_MAPREG_MEM_ADDR_MASK);
+
+				/* Remove old BAR value from page fault callback, insert new value */
 				unregister_mem(barval & PCI_MAPREG_MEM_ADDR_MASK);
 				register_mem(vei->vei.vei_data & PCI_MAPREG_MEM_ADDR_MASK,
 				    barsize, pci_memh2, PTD_DEVID(d, baridx));	
@@ -769,16 +735,20 @@ pci_handle_data_reg(struct vm_run_params *vrp)
 		else {
 			switch (sz) {
 			case 4:
-				set_return_data(vei, data);
+				set_return_data(vei,
+				    pci.pci_devices[d].pd_cfg_space[o / 4]);
 				break;
 			case 2:
 				if (ofs == 0)
-					set_return_data(vei, data);
+					set_return_data(vei, pci.pci_devices[d].
+					    pd_cfg_space[o / 4]);
 				else
-					set_return_data(vei, data >> 16);
+					set_return_data(vei, pci.pci_devices[d].
+					    pd_cfg_space[o / 4] >> 16);
 				break;
 			case 1:
-				set_return_data(vei, data >> (ofs * 8));
+				set_return_data(vei, pci.pci_devices[d].
+				    pd_cfg_space[o / 4] >> (ofs * 8));
 				break;
 			}
 		}

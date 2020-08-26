@@ -1,4 +1,4 @@
-/*	$OpenBSD: ikev2.c,v 1.242 2020/08/14 16:20:42 tobhe Exp $	*/
+/*	$OpenBSD: ikev2.c,v 1.238 2020/08/11 20:51:06 tobhe Exp $	*/
 
 /*
  * Copyright (c) 2019 Tobias Heider <tobias.heider@stusta.de>
@@ -815,9 +815,9 @@ int
 ikev2_ike_auth_recv(struct iked *env, struct iked_sa *sa,
     struct iked_message *msg)
 {
-	struct iked_id		*id;
+	struct iked_id		*id, *certid;
 	struct ibuf		*authmsg;
-	struct iked_policy	*old;
+	struct iked_policy	*policy = sa->sa_policy;
 	uint8_t			*cert = NULL;
 	size_t			 certlen = 0;
 	int			 certtype = IKEV2_CERT_NONE;
@@ -832,14 +832,16 @@ ikev2_ike_auth_recv(struct iked *env, struct iked_sa *sa,
 	    sa->sa_policy->pol_auth.auth_eap)
 		sa_state(env, sa, IKEV2_STATE_EAP);
 
-	if (sa->sa_hdr.sh_initiator)
+	if (sa->sa_hdr.sh_initiator) {
 		id = &sa->sa_rid;
-	else
+		certid = &sa->sa_rcert;
+	} else {
 		id = &sa->sa_iid;
-
+		certid = &sa->sa_icert;
+	}
 	/* try to relookup the policy based on the peerid */
 	if (msg->msg_id.id_type && !sa->sa_hdr.sh_initiator) {
-		old = sa->sa_policy;
+		struct iked_policy	*old = sa->sa_policy;
 
 		sa->sa_policy = NULL;
 		if (policy_lookup(env, msg, &sa->sa_proposals) != 0 ||
@@ -866,6 +868,7 @@ ikev2_ike_auth_recv(struct iked *env, struct iked_sa *sa,
 				ikev2_send_auth_failed(env, sa);
 				return (-1);
 			}
+			policy = sa->sa_policy;
 		} else {
 			/* restore */
 			msg->msg_policy = sa->sa_policy = old;
@@ -4664,7 +4667,7 @@ ikev2_sa_initiator_dh(struct iked_sa *sa, struct iked_message *msg,
 		if ((sa->sa_dhiexchange = ibuf_new(NULL,
 		    dh_getlen(sa->sa_dhgroup))) == NULL) {
 			log_info("%s: failed to alloc dh exchange",
-			    SPI_SA(sa, __func__));
+			    SPI_SA(msg->msg_sa, __func__));
 			return (-1);
 		}
 		if (dh_create_exchange(sa->sa_dhgroup,

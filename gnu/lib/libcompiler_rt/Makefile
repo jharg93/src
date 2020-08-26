@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.4 2020/08/14 14:30:06 kettenis Exp $
+# $OpenBSD: Makefile,v 1.3 2020/08/11 06:38:59 patrick Exp $
 
 .include <bsd.own.mk>
 
@@ -277,9 +277,17 @@ SRCS+=	comparetf2.c \
 .endif
 
 .if ${RTARCH} == "ppc"
-# Omit "double-double" functions since long double is the same as
-# double on OpenBSD.
-SRCS+=	atomic_lock_free.c
+SRCS+=	atomic_lock_free.c \
+	divtc3.c \
+	fixtfdi.c \
+	fixunstfdi.c \
+	floatditf.c \
+	floatunditf.c \
+	gcc_qadd.c \
+	gcc_qdiv.c \
+	gcc_qmul.c \
+	gcc_qsub.c \
+	multc3.c
 .endif
 
 .if ${RTARCH} == "sparc64"

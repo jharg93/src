@@ -104,6 +104,10 @@ sid_fun(int sid)
 /* Page Table Entry per domain */
 static struct ivhd_dte hwdte[65536] __aligned(PAGE_SIZE);
 
+/* Alias mapping */
+#define ALIAS_VALID 0x10000
+static int sid_alias[65536];
+
 struct domain_dev {
 	int			sid;
 	int			sec;
@@ -1581,6 +1585,7 @@ domain_lookup(struct acpidmar_softc *sc, int segment, int sid)
 	return dom;
 }
 
+/* Map Guest Pages into IOMMU */
 void  _iommu_map(void *dom, vaddr_t va, bus_addr_t gpa, bus_size_t len)
 {
 	bus_size_t i;
@@ -1593,15 +1598,13 @@ void  _iommu_map(void *dom, vaddr_t va, bus_addr_t gpa, bus_size_t len)
 	for (i = 0; i < len; i += PAGE_SIZE) {
 		hpa = 0;
 		pmap_extract(curproc->p_vmspace->vm_map.pmap, va, &hpa);
-		if (i < 10*PAGE_SIZE) {
-			printf("hpa:%lx gpa:%lx\n", hpa, gpa);
-		}
 		domain_map_page(dom, gpa, hpa, PTE_P | PTE_R | PTE_W);
 		gpa += PAGE_SIZE;
 		va  += PAGE_SIZE;
 	}
 }
 
+/* Find IOMMU for a given PCI device */
 void *_iommu_domain(int segment, int bus, int dev, int func, int *id)
 {
 	struct domain *dom;
@@ -1632,7 +1635,6 @@ domain_map_device(struct domain *dom, int sid)
 	/* AMD attach device */
 	if (iommu->dte) {
 		struct ivhd_dte *dte = &iommu->dte[sid];
-		//ivhd_intr_map(iommu);
 		if (!dte->dw0) {
 			/* Setup Device Table Entry: bus.devfn */
 			printf("@@@ PCI Attach: %.4x[%s] %.4x\n", sid, dmar_bdf(sid), dom->did);
@@ -1749,7 +1751,7 @@ acpidmar_pci_hook(pci_chipset_tag_t pc, struct pci_attach_args *pa)
 
 	if (PCI_CLASS(reg) == PCI_CLASS_DISPLAY &&
 	    PCI_SUBCLASS(reg) == PCI_SUBCLASS_DISPLAY_VGA) {
-		dom->flag = DOM_DEBUG | DOM_NOMAP;
+		dom->flag = DOM_NOMAP;
 	}
 	if (PCI_CLASS(reg) == PCI_CLASS_BRIDGE &&
 	    PCI_SUBCLASS(reg) == PCI_SUBCLASS_BRIDGE_ISA) {
@@ -1978,7 +1980,9 @@ int _ivhd_issue_command(struct iommu_softc *iommu, const struct ivhd_command *cm
 void ivhd_show_event(struct iommu_softc *, struct ivhd_event *evt, int);
 int ivhd_issue_command(struct iommu_softc *iommu, const struct ivhd_command *cmd, int wait);
 int ivhd_invalidate_domain(struct iommu_softc *iommu, int did);
+void acpiivrs_mkalias(struct acpi_ivhd *, int, uint16_t, uint16_t, uint16_t);
 
+/* Setup interrupt for AMD */
 void ivhd_intr_map(struct iommu_softc *iommu) {
 	struct pci_attach_args ipa;
 	pci_intr_handle_t ih;
@@ -2467,13 +2471,33 @@ int acpiivrs_iommu_match(struct pci_attach_args *pa)
 	return (0);
 }
 
+/* Setup alias mapping, either 1:1 or a->b */
+void
+acpiivrs_mkalias(struct acpi_ivhd *ivhd, int off, uint16_t start, uint16_t alias, uint16_t step)
+{
+	union acpi_ivhd_entry *ie = NULL;
+	int i;
+
+	if (off+sizeof(ie->eor) >= ivhd->length)
+		return;
+	ie = (void *)ivhd + off;
+	if (ie->type != IVHD_EOR)
+		return;
+	printf("Set Alias: %.4x %.4x : %.4x/%x\n", start, ie->eor.devid, alias, step);
+	for (i = start; i < ie->eor.devid; i++) {
+		sid_alias[i] = alias | ALIAS_VALID;
+		alias += step;
+	}
+}
+
 void
 acpiivrs_ivhd(struct acpidmar_softc *sc, struct acpi_ivhd *ivhd)
 {
 	struct iommu_softc *iommu;
 	struct acpi_ivhd_ext *ext;
 	union acpi_ivhd_entry *ie;
-	int off, dte, start, all_dte = 0;
+	int off, dte, all_dte = 0;
+	int alias, start;
 
 	if (ivhd->type == IVRS_IVHD_EXT) {
 		ext = (struct acpi_ivhd_ext *)ivhd;
@@ -2545,8 +2569,10 @@ acpiivrs_ivhd(struct acpidmar_softc *sc, struct acpi_ivhd *ivhd)
 		case IVHD_SOR:
 			dte = ie->sor.data;
 			start = ie->sor.devid;
-			printf(" SOR: %s %.4x\n", dmar_bdf(ie->sor.devid), dte);
+			printf(" SOR: %s %.4x\n", dmar_bdf(start), dte);
 			off += sizeof(ie->sor);
+			/* Setup 1:1 alias mapping */
+			acpiivrs_mkalias(ivhd, off, start, start, 1);
 			break;
 		case IVHD_EOR:
 			printf(" EOR: %s\n", dmar_bdf(ie->eor.devid));
@@ -2560,9 +2586,13 @@ acpiivrs_ivhd(struct acpidmar_softc *sc, struct acpi_ivhd *ivhd)
 			break;
 		case IVHD_ALIAS_SOR:
 			dte = ie->alias.data;
-			printf(" ALIAS_SOR: src=%s: ", dmar_bdf(ie->alias.srcid));
-			printf(" %s %.4x\n", dmar_bdf(ie->alias.devid), dte);
+			start = ie->alias.srcid;
+			alias = ie->alias.devid;
+			printf(" ALIAS_SOR: %s %.4x ", dmar_bdf(ie->alias.devid), dte);
+			printf(" src=%s\n", dmar_bdf(ie->alias.srcid));
 			off += sizeof(ie->alias);
+			/* Setup alias mapping */
+			acpiivrs_mkalias(ivhd, off, start, alias, 0);
 			break;
 		case IVHD_EXT_SEL:
 			dte = ie->ext.data;

@@ -1,7 +1,8 @@
-# $OpenBSD: Makefile,v 1.2 2020/08/13 12:37:16 schwarze Exp $
+# $OpenBSD: Makefile,v 1.1 2020/07/06 07:09:50 dlg Exp $
 
 PROG=	kstat
 SRCS=	kstat.c
+MAN=
 WARNINGS=Yes
 DEBUG=-g
 

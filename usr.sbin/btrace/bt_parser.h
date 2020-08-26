@@ -1,4 +1,4 @@
-/*	$OpenBSD: bt_parser.h,v 1.9 2020/08/13 11:29:39 mpi Exp $	*/
+/*	$OpenBSD: bt_parser.h,v 1.8 2020/07/11 14:52:14 mpi Exp $	*/
 
 /*
  * Copyright (c) 2019-2020 Martin Pieuchot <mpi@openbsd.org>
@@ -24,10 +24,7 @@
 #endif
 
 /*
- * Probes represent entry points where events can be recorded.
- *
- * Those specified in a given bt(5) script are enabled at runtime. They
- * are represented as:
+ * Representation of a probe.
  *
  *	"provider:function:name"
  * or
@@ -88,8 +85,6 @@ struct bt_rule {
 
 /*
  * Global variable representation.
- *
- * Variables are untyped and also include maps and histograms.
  */
 struct bt_var {
 	SLIST_ENTRY(bt_var)	 bv_next;	/* linkage in global list */
@@ -149,11 +144,8 @@ struct bt_arg {
 #define BA_INITIALIZER(v, t)	{ { NULL }, (void *)(v), NULL, (t) }
 
 /*
- * Each action associated with a given probe is made of at least one
- * statement.
- *
- * Statements are interpreted linearly in userland to format data
- * recorded in the form of events.
+ * Statements define what should be done with each event recorded
+ * by the corresponding probe.
  */
 struct bt_stmt {
 	SLIST_ENTRY(bt_stmt)	 bs_next;
