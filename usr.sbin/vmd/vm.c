@@ -24,7 +24,6 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/mman.h>
-#include <sys/queue.h>
 
 #include <dev/ic/i8253reg.h>
 #include <dev/isa/isareg.h>
@@ -1595,72 +1594,12 @@ vcpu_exit_inout(struct vm_run_params *vrp)
 
 	if (ioports_map[vei->vei.vei_port] != NULL)
 		intr = ioports_map[vei->vei.vei_port](vrp);
-	else if (vei->vei.vei_dir == VEI_DIR_IN) {
-		fprintf(stderr, "exit_inout: %x\n", vei->vei.vei_port);
+	else if (vei->vei.vei_dir == VEI_DIR_IN)
 		set_return_data(vei, 0xFFFFFFFF);
-	}
 	if (intr != 0xFF)
 		vcpu_assert_pic_irq(vrp->vrp_vm_id, vrp->vrp_vcpu_id, intr);
 }
 
-TAILQ_HEAD(,iohandler) memh = TAILQ_HEAD_INITIALIZER(memh);
-
-void
-register_mem(uint64_t base, uint32_t len, iocb_t handler, void *cookie)
-{
-	struct iohandler *mem;
-
-	if (!base)
-		return;
-	fprintf(stderr, "@@@ Registering mem region: %llx - %llx\n", base, base+len-1);
-	TAILQ_FOREACH(mem, &memh, next) {
-		if (base >= mem->start && base+len <= mem->end) {
-			fprintf(stderr,"already registered\n");
-			return;
-		}
-	}
-	mem = calloc(1, sizeof(*mem));
-	mem->start = base;
-	mem->end   = base+len-1;
-	mem->handler = handler;
-	mem->cookie = cookie;
-	TAILQ_INSERT_TAIL(&memh, mem, next);
-}
-
-void
-unregister_mem(uint64_t base)
-{
-	struct iohandler *mem, *tmp;
-
-	if (!base)
-		return;
-	fprintf(stderr,"@@@ Unregistering base: %llx\n", base);
-	TAILQ_FOREACH_SAFE(mem, &memh, next, tmp) {
-		if (mem->start == base) {
-			fprintf(stderr, "  removed:%llx-%llx\n", mem->start, mem->end);
-			TAILQ_REMOVE(&memh, mem, next);
-			free(mem);
-		}
-	}
-}
-
-int
-mem_handler(int dir, uint64_t addr, uint32_t size, void *data)
-{
-	struct iohandler *mem;
-	int rc;
-
-	TAILQ_FOREACH(mem, &memh, next) {
-		if (addr >= mem->start && addr+size <= mem->end) {
-			rc = mem->handler(dir, addr, size, data, mem->cookie);
-			if (rc != 0) {
-				fprintf(stderr, "Error mem handler: %llx\n", addr);
-			}
-			return rc;
-		}
-	}
-	return -1;
-}
 
 /*
  * vcpu_exit_eptviolation
@@ -1782,6 +1721,8 @@ vcpu_exit(struct vm_run_params *vrp)
 	case VMX_EXIT_INT_WINDOW:
 	case SVM_VMEXIT_VINTR:
 	case VMX_EXIT_CPUID:
+	case VMX_EXIT_EXTINT:
+	case SVM_VMEXIT_INTR:
 	case SVM_VMEXIT_MSR:
 	case SVM_VMEXIT_CPUID:
 		/*
@@ -1792,13 +1733,11 @@ vcpu_exit(struct vm_run_params *vrp)
 		 * in more vmd log spam).
 		 */
 		break;
-	case SVM_VMEXIT_INTR:
-	case VMX_EXIT_EXTINT:
-		//fprintf(stderr, "extint...\n");
-		break;
 	case VMX_EXIT_EPT_VIOLATION:
 	case SVM_VMEXIT_NPF:
 		ret = vcpu_exit_eptviolation(vrp);
+		if (ret)
+			return (ret);
 		break;
 	case VMX_EXIT_IO:
 	case SVM_VMEXIT_IOIO:

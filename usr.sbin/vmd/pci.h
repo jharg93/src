@@ -34,6 +34,20 @@ typedef int (*pci_mmiobar_fn_t)(int dir, uint32_t ofs, uint32_t *data);
 
 #define PTD_VALID 0x01
 
+typedef int (*iocb_t)(int, uint64_t, uint32_t, void *, void *);
+
+struct iohandler {
+	uint64_t start;
+	uint64_t end;
+	iocb_t handler;
+	void *cookie;
+	TAILQ_ENTRY(iohandler) next;
+};
+
+void register_mem(uint64_t base, uint32_t len, iocb_t handler, void *cookie);
+void unregister_mem(uint64_t base);
+int mem_handler(int dir, uint64_t addr, uint32_t size, void *data);
+
 struct pci_dev {
 	union {
 		uint32_t pd_cfg_space[PCI_CONFIG_SPACE_SIZE / 4];
