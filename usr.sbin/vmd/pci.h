@@ -33,20 +33,6 @@ typedef int (*pci_iobar_fn_t)(int dir, uint16_t reg, uint32_t *data, uint8_t *,
 typedef int (*pci_mmiobar_fn_t)(int dir, uint32_t ofs, uint32_t *data);
 
 #define PTD_VALID 0x01
-struct pci_ptd {
-	uint8_t bus;
-	uint8_t dev;
-	uint8_t fun;
-	uint8_t id;
-	uint32_t pending;
-	
-	struct {
-		uint32_t  type;
-		uint32_t  size;
-		uint64_t  addr;
-		void     *va;
-	} barinfo[MAXBAR];
-};
 
 struct pci_dev {
 	union {

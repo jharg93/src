@@ -311,11 +311,6 @@ extern struct gate_descriptor *idt;
 #define CR_CLTS		2
 #define CR_LMSW		3
 
-int vm_pciio(struct vm_pciio *);
-int vm_pio(struct vm_pio *);
-int vm_getbar(struct vm_barinfo *);
-int vm_getintr(struct vm_getintr *);
-
 /* Keep track of interrupts for PCI device */
 struct vppt {
 	pci_chipset_tag_t pc;
@@ -354,7 +349,8 @@ vmm_mapintr(pci_chipset_tag_t pc, struct pci_attach_args *pa) {
 	printf("Mapped %d/%d/%d intr %d/%d\n", bus, dev, fun, ppt->ih.line, ppt->ih.pin);
 }
 
-int
+/* Issue PCI Read/Write to physical device */
+static int
 vm_pciio(struct vm_pciio *ptd)
 {
 	pci_chipset_tag_t pc = NULL;
@@ -368,15 +364,11 @@ vm_pciio(struct vm_pciio *ptd)
 	} else {
 		ptd->val = pci_conf_read(pc, tag, ptd->reg);
 	}
-#if 1
-	printf("pciio: %d.%d.%d %d reg:%.2x %.8x\n",
-		ptd->bus, ptd->dev, ptd->func, ptd->dir, ptd->reg, ptd->val);
-#endif
 	return 0;
 }
 
 /* Probably should pre-register bus_space_map/bus_space_read_xx? */
-int
+static int
 vm_pio(struct vm_pio *pio)
 {
 	bus_space_tag_t iot;
@@ -454,17 +446,15 @@ vm_pio(struct vm_pio *pio)
 		}
 	}
 #endif
-#if 1
+#if 0
 	printf("%ld pio; %s(%x,%llx)\n", sizeof(*pio), 
 		pio->dir == VEI_DIR_OUT ? "out" : "in", pio->base, pio->data);
 #endif
 	return 0;
 }
 
-int vmm_intr(void *arg);
-
 /* Device interrupt handler. Increase pending count */
-int
+static int
 vmm_intr(void *arg)
 {
 	struct vppt *ppt = arg;
@@ -474,25 +464,25 @@ vmm_intr(void *arg)
 }
 
 /* Get interrupt pending count for a device */
-int
-vm_getintr(struct vm_getintr *gi)
+static int
+vm_getintr(struct vm_ptdpci *ptd)
 {
 	pci_chipset_tag_t pc = NULL;
 	pcitag_t tag;
 	struct vppt *ppt;
 
-	tag = pci_make_tag(pc, gi->bus, gi->dev, gi->func);
+	tag = pci_make_tag(pc, ptd->bus, ptd->dev, ptd->func);
 	TAILQ_FOREACH(ppt, &vppts, next) {
 		if (ppt->tag == tag) {
-			gi->pending = ppt->pending;
+			ptd->pending = ppt->pending;
 		}
 	}
 	return (0);
 }
 
 /* Get PCI/Bar info */
-int
-vm_getbar(struct vm_barinfo *bi)
+static int
+vm_getbar(struct vm_ptdpci *ptd)
 {
 	pci_chipset_tag_t pc = NULL;
 	pcitag_t tag;
@@ -505,39 +495,42 @@ vm_getbar(struct vm_barinfo *bi)
 	struct vppt *ppt;
 	uint32_t id_reg;
 
-	tag = pci_make_tag(pc, bi->bus, bi->dev, bi->func);
+	/* Make sure this is a valid PCI device */
+	tag = pci_make_tag(pc, ptd->bus, ptd->dev, ptd->func);
 	id_reg = pci_conf_read(pc, tag, PCI_ID_REG);
 	printf("getbar: %d.%d.%d %x\n",
-		bi->bus, bi->dev, bi->func, id_reg);
+		ptd->bus, ptd->dev, ptd->func, id_reg);
 	if (PCI_VENDOR(id_reg) == PCI_VENDOR_INVALID)
 		return ENODEV;
 	if (PCI_VENDOR(id_reg) == 0)
 		return ENODEV;
 
-	memset(&bi->bars, 0, sizeof(bi->bars));
+	/* Scan all BARs and get type/address/length */
+	memset(&ptd->barinfo, 0, sizeof(ptd->barinfo));
 	for (i = 0, reg = PCI_MAPREG_START; reg < PCI_MAPREG_END; i++, reg += 4) {
 		if (!pci_mapreg_probe(pc, tag, reg, &type))
 			continue;
 		if (pci_mapreg_info(pc, tag, reg, type, &base, &size, NULL))
 			continue;
 		printf("  %d: %x %.8lx %.16lx\n", i, type, size, base);
-		bi->bars[i].type = type;
-		bi->bars[i].size = size;
-		bi->bars[i].addr = base;
+		ptd->barinfo[i].type = type;
+		ptd->barinfo[i].size = size;
+		ptd->barinfo[i].addr = base;
+		/* Skip next BAR for 64-bit type */
 		if (type & PCI_MAPREG_MEM_TYPE_64BIT) {
-			i++;
 			reg += 4;
+			i++;
 		}
 	}
 
 	/* don't support if mmio and no domain? */
 	did = 0xdeadcafe;
-	dom = _iommu_domain(0, bi->bus, bi->dev, bi->func, &did);
+	dom = _iommu_domain(0, ptd->bus, ptd->dev, ptd->func, &did);
 	printf("domain is: %p:%x\n", dom, did);
 	if (!dom) {
 		return (ENODEV);
 	}
-	/* Map DMA */
+	/* Map VMM DMA to iommu */
 	vm = SLIST_FIRST(&vmm_softc->vm_list);
 	if (vm != NULL) {
 		paddr_t pa;
@@ -554,7 +547,8 @@ vm_getbar(struct vm_barinfo *bi)
 	TAILQ_FOREACH(ppt, &vppts, next) {
 		if (ppt->tag == tag) {
 			if (!ppt->cookie) {
-				ppt->cookie = pci_intr_establish(ppt->pc, ppt->ih, IPL_BIO, vmm_intr, ppt, "ppt");
+				ppt->cookie = pci_intr_establish(ppt->pc, ppt->ih, IPL_BIO, vmm_intr, 
+				    ppt, "ppt");
 			}
 			printf("Establish intr : %p\n", ppt->cookie);
 			ppt->pending = 0;
@@ -767,10 +761,10 @@ vmmioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 		ret = vm_rwvmparams((struct vm_rwvmparams_params *)data, 1);
 		break;
 	case VMM_IOC_BARINFO:
-		ret = vm_getbar((struct vm_barinfo *)data);
+		ret = vm_getbar((struct vm_ptdpci *)data);
 		break;
 	case VMM_IOC_GETINTR:
-		ret = vm_getintr((struct vm_getintr *)data);
+		ret = vm_getintr((struct vm_ptdpci *)data);
 		break;
 	case VMM_IOC_PCIIO:
 		ret = vm_pciio((struct vm_pciio *)data);
@@ -786,6 +780,7 @@ vmmioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 	return (ret);
 }
 
+/* MMAP any address (TODO: fixme) for mapping BAR */
 paddr_t
 vmmmmap(dev_t dev, off_t off, int prot)
 {
@@ -5743,12 +5738,10 @@ svm_fault_page(struct vcpu *vcpu, paddr_t gpa)
 	fault_type = svm_get_guest_faulttype(vmcb);
 
 	vcpu->vc_exit.vee.vee_gpa = gpa;
-	vcpu->vc_exit.vee.vee_fault_type = VEE_FAULT_PROTECT;
-#if 0
 	if ((gpa >= VMM_PCI_MMIO_BAR_BASE && gpa <= VMM_PCI_MMIO_BAR_END) || fault_type == VM_FAULT_PROTECT) {
+		vcpu->vc_exit.vee.vee_fault_type = VEE_FAULT_PROTECT;
 		return (EAGAIN);
 	}
-#endif
 	ret = uvm_fault(vcpu->vc_parent->vm_map, gpa, fault_type,
 	    PROT_READ | PROT_WRITE | PROT_EXEC);
 	if (ret)
@@ -5809,8 +5802,8 @@ vmx_fault_page(struct vcpu *vcpu, paddr_t gpa)
 		return (EINVAL);
 	}
 
+	vcpu->vc_exit.vee.vee_gpa = gpa;
 	if ((gpa >= VMM_PCI_MMIO_BAR_BASE && gpa <= VMM_PCI_MMIO_BAR_END) || fault_type == VM_FAULT_PROTECT) {
-		vcpu->vc_exit.vee.vee_gpa = gpa;
 		vcpu->vc_exit.vee.vee_fault_type = VEE_FAULT_PROTECT;
 		return (EAGAIN);
 	}
@@ -7196,7 +7189,6 @@ vmm_handle_cpuid(struct vcpu *vcpu)
 		 * update %rax. the rest of the registers get updated in
 		 * svm_enter_guest
 	 	 */
-		printf("cpuid: %.16llx %.16llx\n", vmcb->v_rax, *rax); 
 		vmcb->v_rax = *rax;
 	}
 

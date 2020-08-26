@@ -1005,7 +1005,7 @@ init_emulated_hw(struct vmop_create_params *vmc, int child_cdrom,
     int child_disks[][VM_MAX_BASE_PER_DISK], int *child_taps)
 {
 	struct vm_create_params *vcp = &vmc->vmc_params;
-	size_t i;
+	int i;
 	uint64_t memlo, memhi;
 
 	/* Calculate memory size for NVRAM registers */
@@ -1690,7 +1690,7 @@ vcpu_exit_eptviolation(struct vm_run_params *vrp)
 	struct insn ix;
 
 	translate_gva(ve, ve->vrs.vrs_gprs[VCPU_REGS_RIP], &gip, PROT_READ);
-	read_mem(gip, instr, sizeof(instr));	
+	read_mem(gip, instr, sizeof(instr));
 	fprintf(stderr, "===============\nept violation: %llx  rip:0x%llx %.2x %.2x %.2x %.2x %.2x\n",
 		ve->vee.vee_gpa, ve->vrs.vrs_gprs[VCPU_REGS_RIP], instr[0], instr[1], instr[2],
 		instr[3], instr[4]);
@@ -1775,7 +1775,7 @@ vcpu_exit_eptviolation(struct vm_run_params *vrp)
 int
 vcpu_exit(struct vm_run_params *vrp)
 {
-	int ret = 0;
+	int ret;
 
 	switch (vrp->vrp_exit_reason) {
 	case VMX_EXIT_INT_WINDOW:

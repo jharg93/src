@@ -773,8 +773,8 @@ Vreg(int arg) {
 	return VCPU_REGS_RAX;
 }
 
-/* 
- * Disassemble opcode for MMIO fault.  
+/*
+ * Disassemble opcode for MMIO fault.
  * Returns the direction, size and register to read/write in memory handler
  */
 int
