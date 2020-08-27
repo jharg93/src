@@ -677,6 +677,34 @@ pci_get_ht_capability(pci_chipset_tag_t pc, pcitag_t tag, int capid,
 	return (0);
 }
 
+int
+pcie_get_capability(pci_chipset_tag_t pc, pcitag_t tag, int capid,
+    int *offset, pcireg_t *value)
+{
+	pcireg_t reg;
+	unsigned int ofs;
+
+	/* Make sure we support PCIExpress device */
+	if (pci_get_capability(pc, tag, PCI_CAP_PCIEXPRESS, NULL, NULL) == 0)
+		return (0);
+	/* Scan PCIExpress capabilities */
+	ofs = PCI_PCIE_ECAP;
+	while (ofs != 0) {
+		if ((ofs & 3) || (ofs < PCI_PCIE_ECAP))
+			return (0);
+		reg = pci_conf_read(pc, tag, ofs);
+		if (PCI_PCIE_ECAP_ID(reg) == capid) {
+			if (offset)
+				*offset = ofs;
+			if (value)
+				*value = reg;
+			return (1);
+		}
+		ofs = PCI_PCIE_ECAP_NEXT(reg);
+	}
+	return (0);
+}
+
 uint16_t
 pci_requester_id(pci_chipset_tag_t pc, pcitag_t tag)
 {
