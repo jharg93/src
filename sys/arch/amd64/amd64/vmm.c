@@ -533,10 +533,7 @@ vm_getbar(struct vm_ptdpci *ptd)
 	/* Map VMM DMA to iommu */
 	vm = SLIST_FIRST(&vmm_softc->vm_list);
 	if (vm != NULL) {
-		paddr_t pa;
-
 		for (i = 0; i < vm->vm_nmemranges; i++) {
-			printf("mapping va:%lx pa:%lx\n", vm->vm_memranges[i].vmr_va, pa);
 			_iommu_map(dom, 
 				   vm->vm_memranges[i].vmr_va,
 				   vm->vm_memranges[i].vmr_gpa,
