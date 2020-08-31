@@ -123,6 +123,7 @@ ptd_lookup(int devid)
 	return pci.pci_devices[devid].pd_cookie;
 }
 
+#if 0
 /* Map a MMIO Bar Physical address */
 static void *
 ptd_mapbar(int bar, uint64_t base, uint64_t size) {
@@ -152,6 +153,7 @@ ptd_unmapbar(void *va, uint64_t size) {
 	munmap(va, size);
 	fprintf(stderr, "unmapping bar: %p/%.8llx\n", va, size);
 }
+#endif
 
 /* Do Passthrough I/O port read/write */
 static void
@@ -179,7 +181,9 @@ ptd_pio(int type, int dir, int port, int size, uint32_t *data)
 		rc = ioctl(env->vmd_fd, VMM_IOC_PIO, &pio);
 		*data = (*data & ~mask) | (pio.data & mask);
 	}
+#if 0
 	fprintf(stderr, "pio: rc=%d, %d/%.4x %.8x\n", rc, dir, port, *data);
+#endif
 }
 
 /* Passthrough PCI config read */
@@ -270,6 +274,9 @@ pci_memh2(int dir, uint64_t base, uint32_t size, void *data, void *cookie)
 	if (pd == NULL)
 		return -1;
 	off = base & (pd->barinfo[barid].size - 1);
+#if 1
+	ptd_pio(0, dir, off + pd->barinfo[barid].addr, size, data);
+#else
 	va = pd->barinfo[barid].va;
 	if (va == NULL) {
 		return -1;
@@ -280,6 +287,7 @@ pci_memh2(int dir, uint64_t base, uint32_t size, void *data, void *cookie)
 	else {
 		io_copy(va + off, data, size);
 	}
+#endif
 	return 0;
 }
 
@@ -575,7 +583,9 @@ pci_add_pthru(int bus, int dev, int fun)
 		else if (PCI_MAPREG_TYPE(type) == PCI_MAPREG_TYPE_MEM) {
 			pci_add_bar(pd->id, type, pd->barinfo[i].size, 
 				    ptd_mmiobar, PTD_DEVID(pd->id, i));
+#if 0
 			pd->barinfo[i].va = ptd_mapbar(i, pd->barinfo[i].addr, pd->barinfo[i].size);
+#endif
 			/* Skip empty BAR for 64-bit */
 			if (type == (PCI_MAPREG_TYPE_MEM | PCI_MAPREG_MEM_TYPE_64BIT))
 				i++;
