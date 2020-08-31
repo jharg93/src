@@ -563,6 +563,8 @@ pci_add_pthru(int bus, int dev, int fun)
 			PCI_CLASS(class_reg), PCI_SUBCLASS(class_reg),
 			PCI_VENDOR(subid_reg), PCI_PRODUCT(subid_reg),
 			1, NULL, pd);
+	/* Cache entire class reg (interface/revision) */
+	pci.pci_devices[pd->id].pd_cfg_space[PCI_CLASS_REG/4] = class_reg;
 
 	/* Get BARs of native device */
 	rc = ioctl(env->vmd_fd, VMM_IOC_BARINFO, pd);
