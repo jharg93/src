@@ -217,6 +217,7 @@ struct iommu_softc {
 	struct ivhd_dte         *dte;
 	void			*cmd_tbl;
 	void			*evt_tbl;
+	uint64_t		wv[128] __aligned(4096);
 };
 
 static inline int iommu_bad(struct iommu_softc *sc)
@@ -260,6 +261,7 @@ struct cfdriver acpidmar_cd = {
 
 struct		acpidmar_softc *acpidmar_sc;
 int		acpidmar_intr(void *);
+int		acpiivhd_intr(void *);
 
 #define DID_UNITY 0x1
 
@@ -1973,8 +1975,20 @@ int ivhd_issue_command(struct iommu_softc *, const struct ivhd_command *, int);
 int ivhd_invalidate_domain(struct iommu_softc *, int);
 void ivhd_intr_map(struct iommu_softc *, int);
 
+int
+acpiivhd_intr(void *ctx)
+{
+	struct iommu_softc *iommu = ctx;
+
+	if (!iommu->dte)
+		return (0);
+	ivhd_poll_events(iommu);
+	return (1);
+}
+
 /* Setup interrupt for AMD */
-void ivhd_intr_map(struct iommu_softc *iommu, int devid) {
+void
+ivhd_intr_map(struct iommu_softc *iommu, int devid) {
 	pci_intr_handle_t ih;
 
 	if (iommu->intr)
@@ -1983,7 +1997,7 @@ void ivhd_intr_map(struct iommu_softc *iommu, int devid) {
 	ih.line = APIC_INT_VIA_MSG;
 	ih.pin = 0;
 	iommu->intr = pci_intr_establish(NULL, ih, IPL_NET | IPL_MPSAFE,
-				acpidmar_intr, iommu, "amd_iommu");
+				acpiivhd_intr, iommu, "amd_iommu");
 	printf("amd iommu intr: %p\n", iommu->intr);
 }
 
@@ -2175,6 +2189,7 @@ _ivhd_issue_command(struct iommu_softc *iommu, const struct ivhd_command *cmd)
 	tail = iommu_readl(iommu, CMD_TAIL_REG);
 	next = (tail + sz) % CMD_TBL_SIZE;
 	if (next == head) {
+		printf("FULL\n");
 		/* Queue is full */
 		intr_restore(rf);
 		return -EBUSY;
@@ -2182,36 +2197,42 @@ _ivhd_issue_command(struct iommu_softc *iommu, const struct ivhd_command *cmd)
 	memcpy(iommu->cmd_tbl + tail, cmd, sz);
 	iommu_writel(iommu, CMD_TAIL_REG, next);
 	intr_restore(rf);
-	return (tail);
+	return (tail / sz);
 }
+
+#define IVHD_MAXDELAY 8
 
 int
 ivhd_issue_command(struct iommu_softc *iommu, const struct ivhd_command *cmd, int wait)
 {
 	struct ivhd_command wq = { 0 };
-	uint64_t wv __aligned(16) = 0;
+	volatile uint64_t wv __aligned(16) = 0LL;
 	paddr_t paddr;
 	int rc, i;
+	static int mi;
 
 	rc = _ivhd_issue_command(iommu, cmd);
 	if (rc >= 0 && wait) {
 		/* Wait for previous commands to complete.
 		 * Store address of completion variable to command */
 		pmap_extract(pmap_kernel(), (vaddr_t)&wv, &paddr);
-		wq.dw0 = (paddr & ~0x7) | 0x1;
+		wq.dw0 = (paddr & ~0xF) | 0x1;
 		wq.dw1 = (COMPLETION_WAIT << CMD_SHIFT) | ((paddr >> 32) & 0xFFFFF);
 		wq.dw2 = 0xDEADBEEF;
 		wq.dw3 = 0xFEEDC0DE;
 		
 		rc = _ivhd_issue_command(iommu, &wq);
 		/* wv will change to value in dw2/dw3 when command is complete */
-		for (i = 0; i < 1000 && !wv; i++) {
-			DELAY(1000);
+		for (i = 0; i < IVHD_MAXDELAY && !wv; i++) {
+			DELAY(10 << i);
 		}
-		if (i == 1000) {
+		if (mi < i && mi != IVHD_MAXDELAY) {
+			printf("maxdel: %d\n", i);
+			mi = i;
+		}
+		if (i == IVHD_MAXDELAY) {
 			printf("ivhd command timeout: %.8x %.8x %.8x %.8x wv:%llx idx:%x\n", 
 				cmd->dw0, cmd->dw1, cmd->dw2, cmd->dw3, wv, rc);
-			ivhd_showcmd(iommu);
 		}
 	}
 	return rc;
@@ -2410,7 +2431,7 @@ ivhd_iommu_init(struct acpidmar_softc *sc, struct iommu_softc *iommu,
 	iommu_writeq(iommu, DEV_TAB_BASE_REG, (paddr & DEV_TAB_MASK) | DEV_TAB_LEN);
 
 	/* Enable IOMMU */
-	ov |= (CTL_IOMMUEN | CTL_EVENTLOGEN | CTL_CMDBUFEN | CTL_EVENTINTEN);
+	ov |= (CTL_IOMMUEN | CTL_EVENTLOGEN | CTL_CMDBUFEN | CTL_EVENTINTEN | CTL_COMWAITINTEN);
 	if (ivhd->flags & IVHD_COHERENT)
 		ov |= CTL_COHERENT;
 	if (ivhd->flags & IVHD_HTTUNEN)
@@ -2825,11 +2846,6 @@ acpidmar_intr(void *ctx)
 	static struct fault_entry	ofe;
 	int				fro, nfr, fri, i;
 	uint32_t			sts;
-
-	if (iommu->dte) {
-		ivhd_poll_events(iommu);
-		return 1;
-	}
 
 	//splassert(IPL_HIGH);
 
