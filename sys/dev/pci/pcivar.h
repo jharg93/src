@@ -233,11 +233,11 @@ int	pci_io_find(pci_chipset_tag_t, pcitag_t, int, bus_addr_t *,
 int	pci_mem_find(pci_chipset_tag_t, pcitag_t, int, bus_addr_t *,
 	    bus_size_t *, int *);
 
-int	pcie_get_capability(pci_chipset_tag_t, pcitag_t, int,
-	    int *, pcireg_t *);
 int	pci_get_capability(pci_chipset_tag_t, pcitag_t, int,
 	    int *, pcireg_t *);
 int	pci_get_ht_capability(pci_chipset_tag_t, pcitag_t, int,
+	    int *, pcireg_t *);
+int	pci_get_ext_capability(pci_chipset_tag_t, pcitag_t, int,
 	    int *, pcireg_t *);
 
 struct msix_vector;

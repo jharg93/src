@@ -132,6 +132,10 @@ device	pchb: pcibus, agpbus
 attach	pchb at pci
 file	arch/amd64/pci/pchb.c			pchb
 
+device vmmpci
+attach vmmpci at pci
+file   arch/amd64/pci/vmmpci.c			vmmpci
+
 # AMAS AMD memory address switch
 device	amas
 attach	amas at pci

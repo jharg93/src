@@ -808,8 +808,7 @@ int
 pci_probe_device_hook(pci_chipset_tag_t pc, struct pci_attach_args *pa)
 {
 #if NACPI > 0
-	if (acpidmar_sc)
-		acpidmar_pci_hook(pc, pa);
+	acpidmar_pci_hook(pc, pa);
 #endif
 	vmm_mapintr(pc, pa);
 	return 0;

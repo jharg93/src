@@ -678,19 +678,19 @@ pci_get_ht_capability(pci_chipset_tag_t pc, pcitag_t tag, int capid,
 }
 
 int
-pcie_get_capability(pci_chipset_tag_t pc, pcitag_t tag, int capid,
+pci_get_ext_capability(pci_chipset_tag_t pc, pcitag_t tag, int capid,
     int *offset, pcireg_t *value)
 {
 	pcireg_t reg;
 	unsigned int ofs;
 
-	/* Make sure we support PCIExpress device */
+	/* Make sure we support PCI Express device */
 	if (pci_get_capability(pc, tag, PCI_CAP_PCIEXPRESS, NULL, NULL) == 0)
 		return (0);
-	/* Scan PCIExpress capabilities */
+	/* Scan PCI Express capabilities */
 	ofs = PCI_PCIE_ECAP;
 	while (ofs != 0) {
-		if ((ofs & 3) || (ofs < PCI_PCIE_ECAP))
+		if (ofs < PCI_PCIE_ECAP)
 			return (0);
 		reg = pci_conf_read(pc, tag, ofs);
 		if (PCI_PCIE_ECAP_ID(reg) == capid) {
