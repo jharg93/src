@@ -2449,9 +2449,8 @@ acpi_sleep_pm(struct acpi_softc *sc, int state)
 	    sc->sc_fadt->pm2_cnt_blk && sc->sc_fadt->pm2_cnt_len)
 		acpi_write_pmreg(sc, ACPIREG_PM2_CNT, 0, ACPI_PM2_ARB_DIS);
 
-	if (acpidmar_sc)
-		acpidmar_sw(DVACT_SUSPEND);
-	
+	acpidmar_sw(DVACT_SUSPEND);
+
 	/* Write SLP_TYPx values */
 	rega = acpi_read_pmreg(sc, ACPIREG_PM1A_CNT, 0);
 	regb = acpi_read_pmreg(sc, ACPIREG_PM1B_CNT, 0);
@@ -2487,8 +2486,7 @@ acpi_resume_pm(struct acpi_softc *sc, int fromstate)
 {
 	uint16_t rega, regb, en;
 
-	if (acpidmar_sc)
-		acpidmar_sw(DVACT_RESUME);
+	acpidmar_sw(DVACT_RESUME);
 
 	/* Write SLP_TYPx values */
 	rega = acpi_read_pmreg(sc, ACPIREG_PM1A_CNT, 0);
