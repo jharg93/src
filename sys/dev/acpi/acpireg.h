@@ -656,7 +656,7 @@ struct acpi_ivhd_ext {
 	uint32_t	attrib;
 	uint64_t	efr;
 	uint8_t		reserved[8];
-} __packd;
+} __packed;
 
 union acpi_ivrs_entry {
 	struct {
