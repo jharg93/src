@@ -294,10 +294,10 @@ void acpiivrs_init(struct acpidmar_softc *, struct acpi_ivrs *);
 void *acpidmar_intr_establish(void *, int, int (*)(void *), void *,
     const char *);
 
-void iommu_writel(struct iommu_softc *, int, uint32_t);
-uint32_t iommu_readl(struct iommu_softc *, int);
-void iommu_writeq(struct iommu_softc *, int, uint64_t);
-uint64_t iommu_readq(struct iommu_softc *, int);
+void iommu_write_4(struct iommu_softc *, int, uint32_t);
+uint32_t iommu_read_4(struct iommu_softc *, int);
+void iommu_write_8(struct iommu_softc *, int, uint64_t);
+uint64_t iommu_read_8(struct iommu_softc *, int);
 void iommu_showfault(struct iommu_softc *, int,
     struct fault_entry *);
 void iommu_showcfg(struct iommu_softc *, int);
@@ -849,10 +849,10 @@ iommu_set_rtaddr(struct iommu_softc *iommu, paddr_t paddr)
 	int i, sts;
 
 	mtx_enter(&iommu->reg_lock);
-	iommu_writeq(iommu, DMAR_RTADDR_REG, paddr);
-	iommu_writel(iommu, DMAR_GCMD_REG, iommu->gcmd | GCMD_SRTP);
+	iommu_write_8(iommu, DMAR_RTADDR_REG, paddr);
+	iommu_write_4(iommu, DMAR_GCMD_REG, iommu->gcmd | GCMD_SRTP);
 	for (i = 0; i < 5; i++) {
-		sts = iommu_readl(iommu, DMAR_GSTS_REG);
+		sts = iommu_read_4(iommu, DMAR_GSTS_REG);
 		if (sts & GSTS_RTPS)
 			break;
 	}
@@ -961,9 +961,9 @@ iommu_flush_write_buffer(struct iommu_softc *iommu)
 	if (!(iommu->cap & CAP_RWBF))
 		return;
 	printf("writebuf\n");
-	iommu_writel(iommu, DMAR_GCMD_REG, iommu->gcmd | GCMD_WBF);
+	iommu_write_4(iommu, DMAR_GCMD_REG, iommu->gcmd | GCMD_WBF);
 	for (i = 0; i < 5; i++) {
-		sts = iommu_readl(iommu, DMAR_GSTS_REG);
+		sts = iommu_read_4(iommu, DMAR_GSTS_REG);
 		if (sts & GSTS_WBFS)
 			break;
 		delay(10000);
@@ -1021,10 +1021,10 @@ iommu_flush_tlb(struct iommu_softc *iommu, int mode, int did)
 
 	mtx_enter(&iommu->reg_lock);
 
-	iommu_writeq(iommu, DMAR_IOTLB_REG(iommu), val);
+	iommu_write_8(iommu, DMAR_IOTLB_REG(iommu), val);
 	n = 0;
 	do {
-		val = iommu_readq(iommu, DMAR_IOTLB_REG(iommu));
+		val = iommu_read_8(iommu, DMAR_IOTLB_REG(iommu));
 	} while (n++ < 5 && val & IOTLB_IVT);
 
 	mtx_leave(&iommu->reg_lock);
@@ -1074,9 +1074,9 @@ iommu_flush_ctx(struct iommu_softc *iommu, int mode, int did, int sid, int fm)
 	mtx_enter(&iommu->reg_lock);
 
 	n = 0;
-	iommu_writeq(iommu, DMAR_CCMD_REG, val);
+	iommu_write_8(iommu, DMAR_CCMD_REG, val);
 	do {
-		val = iommu_readq(iommu, DMAR_CCMD_REG);
+		val = iommu_read_8(iommu, DMAR_CCMD_REG);
 	} while (n++ < 5 && val & CCMD_ICC);
 
 	mtx_leave(&iommu->reg_lock);
@@ -1113,9 +1113,9 @@ iommu_enable_qi(struct iommu_softc *iommu, int enable)
 
 		mtx_enter(&iommu->reg_lock);
 
-		iommu_writel(iommu, DMAR_GCMD_REG, iommu->gcmd);
+		iommu_write_4(iommu, DMAR_GCMD_REG, iommu->gcmd);
 		do {
-			sts = iommu_readl(iommu, DMAR_GSTS_REG);
+			sts = iommu_read_4(iommu, DMAR_GSTS_REG);
 		} while (n++ < 5 && !(sts & GSTS_QIES));
 
 		mtx_leave(&iommu->reg_lock);
@@ -1126,9 +1126,9 @@ iommu_enable_qi(struct iommu_softc *iommu, int enable)
 
 		mtx_enter(&iommu->reg_lock);
 
-		iommu_writel(iommu, DMAR_GCMD_REG, iommu->gcmd);
+		iommu_write_4(iommu, DMAR_GCMD_REG, iommu->gcmd);
 		do {
-			sts = iommu_readl(iommu, DMAR_GSTS_REG);
+			sts = iommu_read_4(iommu, DMAR_GSTS_REG);
 		} while (n++ < 5 && sts & GSTS_QIES);
 
 		mtx_leave(&iommu->reg_lock);
@@ -1158,11 +1158,11 @@ iommu_enable_translation(struct iommu_softc *iommu, int enable)
 		printf(" pre tes: ");
 
 		mtx_enter(&iommu->reg_lock);
-		iommu_writel(iommu, DMAR_GCMD_REG, iommu->gcmd);
+		iommu_write_4(iommu, DMAR_GCMD_REG, iommu->gcmd);
 		printf("xxx");
 		do {
 			printf("yyy");
-			sts = iommu_readl(iommu, DMAR_GSTS_REG);
+			sts = iommu_read_4(iommu, DMAR_GSTS_REG);
 			delay(n * 10000);
 		} while (n++ < 5 && !(sts & GSTS_TES));
 		mtx_leave(&iommu->reg_lock);
@@ -1177,7 +1177,7 @@ iommu_enable_translation(struct iommu_softc *iommu, int enable)
 			/* Disable IOMMU */
 			iommu->gcmd &= ~GCMD_TE;
 			mtx_enter(&iommu->reg_lock);
-			iommu_writel(iommu, DMAR_GCMD_REG, iommu->gcmd);
+			iommu_write_4(iommu, DMAR_GCMD_REG, iommu->gcmd);
 			mtx_leave(&iommu->reg_lock);
 
 			return (1);
@@ -1190,9 +1190,9 @@ iommu_enable_translation(struct iommu_softc *iommu, int enable)
 
 		mtx_enter(&iommu->reg_lock);
 
-		iommu_writel(iommu, DMAR_GCMD_REG, iommu->gcmd);
+		iommu_write_4(iommu, DMAR_GCMD_REG, iommu->gcmd);
 		do {
-			sts = iommu_readl(iommu, DMAR_GSTS_REG);
+			sts = iommu_read_4(iommu, DMAR_GSTS_REG);
 		} while (n++ < 5 && sts & GSTS_TES);
 		mtx_leave(&iommu->reg_lock);
 
@@ -1223,8 +1223,8 @@ iommu_init(struct acpidmar_softc *sc, struct iommu_softc *iommu,
 	iommu->segment = dh->segment;
 	iommu->iot = sc->sc_memt;
 
-	iommu->cap = iommu_readq(iommu, DMAR_CAP_REG);
-	iommu->ecap = iommu_readq(iommu, DMAR_ECAP_REG);
+	iommu->cap = iommu_read_8(iommu, DMAR_CAP_REG);
+	iommu->ecap = iommu_read_8(iommu, DMAR_ECAP_REG);
 	iommu->ndoms = cap_nd(iommu->cap);
 
 	printf("  caps: %s%s%s%s%s%s%s%s%s%s%s\n",
@@ -1261,14 +1261,14 @@ iommu_init(struct acpidmar_softc *sc, struct iommu_softc *iommu,
 	mtx_init(&iommu->reg_lock, IPL_HIGH);
 
 	/* Clear Interrupt Masking */
-	iommu_writel(iommu, DMAR_FSTS_REG, FSTS_PFO | FSTS_PPF);
+	iommu_write_4(iommu, DMAR_FSTS_REG, FSTS_PFO | FSTS_PPF);
 
 	iommu->intr = acpidmar_intr_establish(iommu, IPL_HIGH,
 	    acpidmar_intr, iommu, "dmarintr");
 
 	/* Enable interrupts */
-	sts = iommu_readl(iommu, DMAR_FECTL_REG);
-	iommu_writel(iommu, DMAR_FECTL_REG, sts & ~FECTL_IM);
+	sts = iommu_read_4(iommu, DMAR_FECTL_REG);
+	iommu_write_4(iommu, DMAR_FECTL_REG, sts & ~FECTL_IM);
 
 	/* Allocate root pointer */
 	iommu->root = iommu_alloc_page(iommu, &paddr);
@@ -1284,12 +1284,12 @@ iommu_init(struct acpidmar_softc *sc, struct iommu_softc *iommu,
 	if (iommu->ecap & ECAP_QI) {
 		/* Queued Invalidation support */
 		iommu->qi = iommu_alloc_page(iommu, &iommu->qip);
-		iommu_writeq(iommu, DMAR_IQT_REG, 0);
-		iommu_writeq(iommu, DMAR_IQA_REG, iommu->qip | IQA_QS_256);
+		iommu_write_8(iommu, DMAR_IQT_REG, 0);
+		iommu_write_8(iommu, DMAR_IQA_REG, iommu->qip | IQA_QS_256);
 	}
 	if (iommu->ecap & ECAP_IR) {
 		/* Interrupt remapping support */
-		iommu_writeq(iommu, DMAR_IRTA_REG, 0);
+		iommu_write_8(iommu, DMAR_IRTA_REG, 0);
 	}
 #endif
 
@@ -1307,7 +1307,7 @@ iommu_init(struct acpidmar_softc *sc, struct iommu_softc *iommu,
 	printf("}\n");
 
 	/* Cache current status register bits */
-	sts = iommu_readl(iommu, DMAR_GSTS_REG);
+	sts = iommu_read_4(iommu, DMAR_GSTS_REG);
 	if (sts & GSTS_TES)
 		iommu->gcmd |= GCMD_TE;
 	if (sts & GSTS_QIES)
@@ -1363,7 +1363,7 @@ dmar_rn(int reg)
 
 /* Read/Write IOMMU register */
 uint32_t
-iommu_readl(struct iommu_softc *iommu, int reg)
+iommu_read_4(struct iommu_softc *iommu, int reg)
 {
 	uint32_t	v;
 
@@ -1380,7 +1380,7 @@ iommu_readl(struct iommu_softc *iommu, int reg)
 #define dbprintf(x...)
 
 void
-iommu_writel(struct iommu_softc *iommu, int reg, uint32_t v)
+iommu_write_4(struct iommu_softc *iommu, int reg, uint32_t v)
 {
 	dbprintf("iommu%d: write %.8x %.16lx [%s]\n",
 	    iommu->id, reg, (unsigned long)v, dmar_rn(reg));
@@ -1388,7 +1388,7 @@ iommu_writel(struct iommu_softc *iommu, int reg, uint32_t v)
 }
 
 uint64_t
-iommu_readq(struct iommu_softc *iommu, int reg)
+iommu_read_8(struct iommu_softc *iommu, int reg)
 {
 	uint64_t	v;
 
@@ -1402,7 +1402,7 @@ iommu_readq(struct iommu_softc *iommu, int reg)
 }
 
 void
-iommu_writeq(struct iommu_softc *iommu, int reg, uint64_t v)
+iommu_write_8(struct iommu_softc *iommu, int reg, uint64_t v)
 {
 	dbprintf("iommu%d: write %.8x %.16lx [%s]\n",
 		    iommu->id, reg, (unsigned long)v, dmar_rn(reg));
@@ -2137,8 +2137,8 @@ ivhd_poll_events(struct iommu_softc *iommu)
 	int sz;
 
 	sz = sizeof(struct ivhd_event);
-	head = iommu_readl(iommu, EVT_HEAD_REG);
-	tail = iommu_readl(iommu, EVT_TAIL_REG);
+	head = iommu_read_4(iommu, EVT_HEAD_REG);
+	tail = iommu_read_4(iommu, EVT_TAIL_REG);
 	if (head == tail) {
 		/* No pending events */
 		return (0);
@@ -2147,7 +2147,7 @@ ivhd_poll_events(struct iommu_softc *iommu)
 		ivhd_show_event(iommu, iommu->evt_tbl + head, head);
 		head = (head + sz) % EVT_TBL_SIZE;
 	}
-	iommu_writel(iommu, EVT_HEAD_REG, head);
+	iommu_write_4(iommu, EVT_HEAD_REG, head);
 	return (0);
 }
 
@@ -2159,10 +2159,10 @@ _ivhd_issue_command(struct iommu_softc *iommu, const struct ivhd_command *cmd)
 	uint32_t head, tail, next;
 	int sz;
 	
-	head = iommu_readl(iommu, CMD_HEAD_REG);
+	head = iommu_read_4(iommu, CMD_HEAD_REG);
 	sz = sizeof(*cmd);
 	rf = intr_disable();
-	tail = iommu_readl(iommu, CMD_TAIL_REG);
+	tail = iommu_read_4(iommu, CMD_TAIL_REG);
 	next = (tail + sz) % CMD_TBL_SIZE;
 	if (next == head) {
 		printf("FULL\n");
@@ -2171,7 +2171,7 @@ _ivhd_issue_command(struct iommu_softc *iommu, const struct ivhd_command *cmd)
 		return -EBUSY;
 	}
 	memcpy(iommu->cmd_tbl + tail, cmd, sz);
-	iommu_writel(iommu, CMD_TAIL_REG, next);
+	iommu_write_4(iommu, CMD_TAIL_REG, next);
 	intr_restore(rf);
 	return (tail / sz);
 }
@@ -2250,16 +2250,16 @@ int ivhd_invalidate_domain(struct iommu_softc *iommu, int did)
 void ivhd_showit(struct iommu_softc *iommu)
 {
 	printf("---- dt:%.16llx cmd:%.16llx evt:%.16llx ctl:%.16llx sts:%.16llx\n",
-		iommu_readq(iommu, DEV_TAB_BASE_REG),
-		iommu_readq(iommu, CMD_BASE_REG),
-		iommu_readq(iommu, EVT_BASE_REG),
-		iommu_readq(iommu, IOMMUCTL_REG),
-		iommu_readq(iommu, IOMMUSTS_REG));
+		iommu_read_8(iommu, DEV_TAB_BASE_REG),
+		iommu_read_8(iommu, CMD_BASE_REG),
+		iommu_read_8(iommu, EVT_BASE_REG),
+		iommu_read_8(iommu, IOMMUCTL_REG),
+		iommu_read_8(iommu, IOMMUSTS_REG));
 	printf("---- cmd queue:%.16llx %.16llx evt queue:%.16llx %.16llx\n",
-		iommu_readq(iommu, CMD_HEAD_REG),
-		iommu_readq(iommu, CMD_TAIL_REG),
-		iommu_readq(iommu, EVT_HEAD_REG),
-		iommu_readq(iommu, EVT_TAIL_REG));
+		iommu_read_8(iommu, CMD_HEAD_REG),
+		iommu_read_8(iommu, CMD_TAIL_REG),
+		iommu_read_8(iommu, EVT_HEAD_REG),
+		iommu_read_8(iommu, EVT_TAIL_REG));
 }
 
 /* AMD: Generate Errors to test event handler */
@@ -2307,7 +2307,7 @@ void ivhd_showcmd(struct iommu_softc *iommu)
 	int i;
 
 	ihd = iommu->cmd_tbl;
-	phd = iommu_readq(iommu, CMD_BASE_REG) & CMD_BASE_MASK;
+	phd = iommu_read_8(iommu, CMD_BASE_REG) & CMD_BASE_MASK;
 	for (i = 0; i < 4096 / 128; i++) {
 		printf("%.2x: %.16llx %.8x %.8x %.8x %.8x\n", i, 
 			(uint64_t)phd + i * sizeof(*ihd),
@@ -2346,7 +2346,7 @@ ivhd_iommu_init(struct acpidmar_softc *sc, struct iommu_softc *iommu,
 	iommu->segment = 0;
 	iommu->ndoms = 256;
 
-	iommu->ecap = iommu_readq(iommu, EXTFEAT_REG);
+	iommu->ecap = iommu_read_8(iommu, EXTFEAT_REG);
 	printf("ecap = %.16llx\n", iommu->ecap);
 	printf("%s%s%s%s%s%s%s%s\n",
 		iommu->ecap & EFR_PREFSUP ? "pref " : "",
@@ -2362,8 +2362,8 @@ ivhd_iommu_init(struct acpidmar_softc *sc, struct iommu_softc *iommu,
 		_c(EFR_SMIFRC), _c(EFR_GAMSUP));
 
 	/* Turn off iommu */
-	ov = iommu_readq(iommu, IOMMUCTL_REG);
-	iommu_writeq(iommu, IOMMUCTL_REG, ov & ~(CTL_IOMMUEN | CTL_COHERENT | 
+	ov = iommu_read_8(iommu, IOMMUCTL_REG);
+	iommu_write_8(iommu, IOMMUCTL_REG, ov & ~(CTL_IOMMUEN | CTL_COHERENT | 
 		CTL_HTTUNEN | CTL_RESPASSPW | CTL_PASSPW | CTL_ISOC));
 
 	/* Enable intr */
@@ -2372,16 +2372,16 @@ ivhd_iommu_init(struct acpidmar_softc *sc, struct iommu_softc *iommu,
 
 	/* Setup command buffer with 4k buffer (128 entries) */
 	iommu->cmd_tbl = iommu_alloc_page(iommu, &paddr);
-	iommu_writeq(iommu, CMD_BASE_REG, (paddr & CMD_BASE_MASK) | CMD_TBL_LEN_4K);
-	iommu_writel(iommu, CMD_HEAD_REG, 0x00);
-	iommu_writel(iommu, CMD_TAIL_REG, 0x00);
+	iommu_write_8(iommu, CMD_BASE_REG, (paddr & CMD_BASE_MASK) | CMD_TBL_LEN_4K);
+	iommu_write_4(iommu, CMD_HEAD_REG, 0x00);
+	iommu_write_4(iommu, CMD_TAIL_REG, 0x00);
 	iommu->cmd_tblp = paddr;
 
 	/* Setup event log with 4k buffer (128 entries) */
 	iommu->evt_tbl = iommu_alloc_page(iommu, &paddr);
-	iommu_writeq(iommu, EVT_BASE_REG, (paddr & EVT_BASE_MASK) | EVT_TBL_LEN_4K);
-	iommu_writel(iommu, EVT_HEAD_REG, 0x00);
-	iommu_writel(iommu, EVT_TAIL_REG, 0x00);
+	iommu_write_8(iommu, EVT_BASE_REG, (paddr & EVT_BASE_MASK) | EVT_TBL_LEN_4K);
+	iommu_write_4(iommu, EVT_HEAD_REG, 0x00);
+	iommu_write_4(iommu, EVT_TAIL_REG, 0x00);
 	iommu->evt_tblp = paddr;
 
 	/* Setup device table
@@ -2389,7 +2389,7 @@ ivhd_iommu_init(struct acpidmar_softc *sc, struct iommu_softc *iommu,
 	 */
 	iommu->dte = hwdte;
 	pmap_extract(pmap_kernel(), (vaddr_t)iommu->dte, &paddr);
-	iommu_writeq(iommu, DEV_TAB_BASE_REG, (paddr & DEV_TAB_MASK) | DEV_TAB_LEN);
+	iommu_write_8(iommu, DEV_TAB_BASE_REG, (paddr & DEV_TAB_MASK) | DEV_TAB_LEN);
 
 	/* Enable IOMMU */
 	ov |= (CTL_IOMMUEN | CTL_EVENTLOGEN | CTL_CMDBUFEN | CTL_EVENTINTEN | CTL_COMWAITINTEN);
@@ -2405,7 +2405,7 @@ ivhd_iommu_init(struct acpidmar_softc *sc, struct iommu_softc *iommu,
 		ov |= CTL_ISOC;
 	ov &= ~(CTL_INVTIMEOUT_MASK << CTL_INVTIMEOUT_SHIFT);
 	ov |=  (CTL_INVTIMEOUT_1MS  << CTL_INVTIMEOUT_SHIFT);
-	iommu_writeq(iommu, IOMMUCTL_REG, ov);
+	iommu_write_8(iommu, IOMMUCTL_REG, ov);
 
 	ivhd_invalidate_iommu_all(iommu);
 	//ivhd_checkerr(iommu);
@@ -2634,9 +2634,9 @@ acpidmar_activate(struct device *self, int act)
 			}
 			iommu_flush_write_buffer(iommu);
 			iommu_set_rtaddr(iommu, iommu->rtaddr);
-			iommu_writel(iommu, DMAR_FEDATA_REG, iommu->fedata);
-			iommu_writel(iommu, DMAR_FEADDR_REG, iommu->feaddr);
-			iommu_writel(iommu, DMAR_FEUADDR_REG,
+			iommu_write_4(iommu, DMAR_FEDATA_REG, iommu->fedata);
+			iommu_write_4(iommu, DMAR_FEADDR_REG, iommu->feaddr);
+			iommu_write_4(iommu, DMAR_FEUADDR_REG,
 			    iommu->feaddr >> 32);
 			if ((iommu->flags & (IOMMU_FLAGS_BAD|IOMMU_FLAGS_SUSPEND)) ==
 			    IOMMU_FLAGS_SUSPEND) {
@@ -2727,8 +2727,8 @@ acpidmar_msi_hwmask(struct pic *pic, int pin)
 
 	mtx_enter(&iommu->reg_lock);
 
-	iommu_writel(iommu, DMAR_FECTL_REG, FECTL_IM);
-	iommu_readl(iommu, DMAR_FECTL_REG);
+	iommu_write_4(iommu, DMAR_FECTL_REG, FECTL_IM);
+	iommu_read_4(iommu, DMAR_FECTL_REG);
 
 	mtx_leave(&iommu->reg_lock);
 }
@@ -2743,8 +2743,8 @@ acpidmar_msi_hwunmask(struct pic *pic, int pin)
 
 	mtx_enter(&iommu->reg_lock);
 
-	iommu_writel(iommu, DMAR_FECTL_REG, 0);
-	iommu_readl(iommu, DMAR_FECTL_REG);
+	iommu_write_4(iommu, DMAR_FECTL_REG, 0);
+	iommu_read_4(iommu, DMAR_FECTL_REG);
 
 	mtx_leave(&iommu->reg_lock);
 }
@@ -2760,9 +2760,9 @@ acpidmar_msi_addroute(struct pic *pic, struct cpu_info *ci, int pin, int vec,
 
 	iommu->fedata = vec;
 	iommu->feaddr = 0xfee00000L | (ci->ci_apicid << 12);
-	iommu_writel(iommu, DMAR_FEDATA_REG, vec);
-	iommu_writel(iommu, DMAR_FEADDR_REG, iommu->feaddr);
-	iommu_writel(iommu, DMAR_FEUADDR_REG, iommu->feaddr >> 32);
+	iommu_write_4(iommu, DMAR_FEDATA_REG, vec);
+	iommu_write_4(iommu, DMAR_FEADDR_REG, iommu->feaddr);
+	iommu_write_4(iommu, DMAR_FEUADDR_REG, iommu->feaddr >> 32);
 
 	mtx_leave(&iommu->reg_lock);
 }
@@ -2814,8 +2814,8 @@ acpidmar_intr(void *ctx)
 		return (1);
 	}
 	mtx_enter(&iommu->reg_lock);
-	sts = iommu_readl(iommu, DMAR_FECTL_REG);
-	sts = iommu_readl(iommu, DMAR_FSTS_REG);
+	sts = iommu_read_4(iommu, DMAR_FECTL_REG);
+	sts = iommu_read_4(iommu, DMAR_FSTS_REG);
 
 	if (!(sts & FSTS_PPF)) {
 		mtx_leave(&iommu->reg_lock);
@@ -2826,11 +2826,11 @@ acpidmar_intr(void *ctx)
 	fro = cap_fro(iommu->cap);
 	fri = (sts >> FSTS_FRI_SHIFT) & FSTS_FRI_MASK;
 	for (i = 0; i < nfr; i++) {
-		fe.hi = iommu_readq(iommu, fro + (fri*16) + 8);
+		fe.hi = iommu_read_8(iommu, fro + (fri*16) + 8);
 		if (!(fe.hi & FRCD_HI_F))
 			break;
 
-		fe.lo = iommu_readq(iommu, fro + (fri*16));
+		fe.lo = iommu_read_8(iommu, fro + (fri*16));
 		if (ofe.hi != fe.hi || ofe.lo != fe.lo) {
 			iommu_showfault(iommu, fri, &fe);
 			ofe.hi = fe.hi;
@@ -2839,7 +2839,7 @@ acpidmar_intr(void *ctx)
 		fri = (fri + 1) % nfr;
 	}
 
-	iommu_writel(iommu, DMAR_FSTS_REG, FSTS_PFO | FSTS_PPF);
+	iommu_write_4(iommu, DMAR_FSTS_REG, FSTS_PFO | FSTS_PPF);
 
 	mtx_leave(&iommu->reg_lock);
 
@@ -2900,10 +2900,10 @@ iommu_showcfg(struct iommu_softc *iommu, int sid)
 	pcitag_t tag;
 	pcireg_t clc;
 
-	cmd = iommu_readl(iommu, DMAR_GCMD_REG);
-	sts = iommu_readl(iommu, DMAR_GSTS_REG);
+	cmd = iommu_read_4(iommu, DMAR_GCMD_REG);
+	sts = iommu_read_4(iommu, DMAR_GSTS_REG);
 	printf("iommu%d: flags:%d root pa:%.16llx %s %s %s %.8x %.8x\n",
-	    iommu->id, iommu->flags, iommu_readq(iommu, DMAR_RTADDR_REG),
+	    iommu->id, iommu->flags, iommu_read_8(iommu, DMAR_RTADDR_REG),
 	    sts & GSTS_TES ? "enabled" : "disabled",
 	    sts & GSTS_QIES ? "qi" : "ccmd",
 	    sts & GSTS_IRES ? "ir" : "",
