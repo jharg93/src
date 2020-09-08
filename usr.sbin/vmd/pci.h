@@ -1,4 +1,4 @@
-/*	$OpenBSD: pci.h,v 1.7 2017/09/17 23:07:56 pd Exp $	*/
+/*	$OpenBSD: pci.h,v 1.8 2020/09/08 20:09:43 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
