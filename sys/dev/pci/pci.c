@@ -1,4 +1,4 @@
-/*	$OpenBSD: pci.c,v 1.118 2020/06/26 10:16:00 dlg Exp $	*/
+/*	$OpenBSD: pci.c,v 1.119 2020/09/08 20:13:52 kettenis Exp $	*/
 /*	$NetBSD: pci.c,v 1.31 1997/06/06 23:48:04 thorpej Exp $	*/
 
 /*
