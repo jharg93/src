@@ -310,17 +310,6 @@ extern struct gate_descriptor *idt;
 #define CR_CLTS		2
 #define CR_LMSW		3
 
-/* Keep track of interrupts for PCI device */
-struct vppt {
-	pci_chipset_tag_t pc;
-	pcitag_t          tag;
-	pci_intr_handle_t ih;
-	uint32_t	  pending;
-	void		  *cookie;
-	TAILQ_ENTRY(vppt) next;
-};
-TAILQ_HEAD(,vppt) vppts = TAILQ_HEAD_INITIALIZER(vppts);
-
 /* Issue PCI Read/Write to physical device */
 static int
 vm_pciio(struct vm_pciio *ptd)
@@ -385,39 +374,6 @@ vm_pio(struct vm_pio *pio)
 		}
 	}
 	bus_space_unmap(iot, ioh, pio->size);
-#if 0
-	if (pio->dir == VEI_DIR_OUT) {
-		switch (pio->size) {
-		case 1:
-			outb(pio->base, pio->data);
-			break;
-		case 2:
-			outw(pio->base, pio->data);
-			break;
-		case 4:
-			outl(pio->base, pio->data);
-			break;
-		default:
-			printf("pio:no wrsize: %d\n", pio->base);
-			return EINVAL;
-		}
-	} else {
-		switch (pio->size) {
-		case 1:
-			pio->data = inb(pio->base);
-			break;
-		case 2:
-			pio->data = inw(pio->base);
-			break;
-		case 4:
-			pio->data = inl(pio->base);
-			break;
-		default:
-			printf("pio:no rdsize: %d\n", pio->base);
-			return EINVAL;
-		}
-	}
-#endif
 #if 0
 	printf("%ld pio; %s(%x,%llx)\n", sizeof(*pio), 
 		pio->dir == VEI_DIR_OUT ? "out" : "in", pio->base, pio->data);
