@@ -85,16 +85,19 @@ int
 vmmpciadd(pci_chipset_tag_t pc, pcitag_t tag)
 {
 	int i;
-	pcireg_t reg;
+	struct device *pd;
+	struct pci_softc *psc;
 
+	/* Check if we are already mapped */
 	if (vmmpcifind(pc, tag))
 		return (1);
-	/* Check if we exist first */
-	reg = pci_conf_read(pc, tag, PCI_ID_REG);
-	if (PCI_VENDOR(reg) == PCI_VENDOR_INVALID)
+
+	/* Find parent device */
+	pd = (struct device *)pci_find_bytag(0, tag);
+	if (pd == NULL)
 		return (0);
-	if (PCI_VENDOR(reg) == 0)
-		return (0);
+
+	psc = (struct pci_softc *)pd->dv_parent;
 	for (i = 0; i < MAXVMMPCI; i++) {
 		if (vmmpcis[i].vp_valid == 0) {
 			vmmpcis[i].vp_valid = 1;
@@ -102,6 +105,8 @@ vmmpciadd(pci_chipset_tag_t pc, pcitag_t tag)
 			vmmpcis[i].vp_tag = tag;
 
 			/* detach the old device, reattach */
+			config_detach(pd, 0);
+			pci_probe_device(psc, tag, NULL, NULL);
 			return (1);
 		}
 	}

@@ -157,6 +157,8 @@ struct ivhd_dte {
 	uint32_t dw7;
 } __packed;
 
+#define HWDTE_SIZE (65536 * sizeof(struct ivhd_dte))
+
 #define DTE_V			(1L << 0)			// dw0
 #define DTE_TV			(1L << 1)			// dw0
 #define DTE_LEVEL_SHIFT		9				// dw0

@@ -1158,6 +1158,34 @@ pci_disable_legacy_vga(struct device *dev)
 	}
 }
 
+struct pci_dev *
+pci_find_bytag(int domain, pcitag_t tag)
+{
+	struct pci_softc *pci;
+	struct pci_dev *pd;
+	int bus, i;
+
+	/* Lookup pci softc by domain/bus */
+	for (i = 0; i < pci_cd.cd_ndevs; i++) {
+		pci = pci_cd.cd_devs[i];
+		if (pci == NULL || pci->sc_domain != domain)
+			continue;
+		pci_decompose_tag(pci->sc_pc, tag, &bus, NULL, NULL);
+		if (pci->sc_bus == bus)
+			break;
+	}
+
+	if (!pci)
+		return NULL;
+
+	/* Lookup by tag (devfn) */
+	LIST_FOREACH(pd, &pci->sc_devs, pd_next)
+		if (tag == pd->pd_tag)
+			return (void *)pd->pd_dev;
+
+	return NULL;
+}
+
 #ifdef USER_PCICONF
 /*
  * This is the user interface to PCI configuration space.

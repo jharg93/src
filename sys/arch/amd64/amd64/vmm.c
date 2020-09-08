@@ -480,6 +480,8 @@ vm_getintr(struct vm_ptdpci *ptd)
 	return (0);
 }
 
+extern int vmmpciadd(pci_chipset_tag_t pc, pcitag_t tag);
+
 /* Get PCI/Bar info */
 static int
 vm_getbar(struct vm_ptdpci *ptd)
@@ -504,6 +506,8 @@ vm_getbar(struct vm_ptdpci *ptd)
 		return ENODEV;
 	if (PCI_VENDOR(id_reg) == 0)
 		return ENODEV;
+
+	vmmpciadd(NULL, tag);
 
 	/* Scan all BARs and get type/address/length */
 	memset(&ptd->barinfo, 0, sizeof(ptd->barinfo));

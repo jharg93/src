@@ -101,9 +101,6 @@ sid_fun(int sid)
 	return (sid >> 0) & 0x7;
 }
 
-/* Page Table Entry per domain */
-static struct ivhd_dte hwdte[65536] __aligned(PAGE_SIZE);
-
 /* Alias mapping */
 #define SID_INVALID 0x80000000L
 static uint32_t sid_flag[65536];
@@ -242,6 +239,10 @@ struct acpidmar_softc {
 	bus_space_tag_t		sc_memt;
 	int			sc_haw;
 	int			sc_flags;
+	struct bus_dma_tag	sc_dmat;
+
+	struct ivhd_dte		*sc_hwdte;
+	paddr_t			sc_hwdtep;
 
 	TAILQ_HEAD(,iommu_softc)sc_drhds;
 	TAILQ_HEAD(,rmrr_softc)	sc_rmrrs;
@@ -320,6 +321,8 @@ void iommu_set_rtaddr(struct iommu_softc *, paddr_t);
 
 const char *dmar_bdf(int);
 
+void *iommu_alloc_contig(struct acpidmar_softc *sc, size_t size, paddr_t *paddr);
+
 const char *
 dmar_bdf(int sid)
 {
@@ -361,7 +364,7 @@ void domain_map_check(struct domain *dom);
 struct pte_entry *pte_lvl(struct iommu_softc *iommu, struct pte_entry *npte, vaddr_t va, int shift, uint64_t flags);
 int  ivhd_poll_events(struct iommu_softc *iommu);
 void ivhd_showit(struct iommu_softc *);
-void ivhd_showdte(void);
+void ivhd_showdte(struct iommu_softc *);
 void ivhd_showcmd(struct iommu_softc *);
 
 static inline int
@@ -861,6 +864,43 @@ iommu_set_rtaddr(struct iommu_softc *iommu, paddr_t paddr)
 	if (i == 5) {
 		printf("set_rtaddr fails\n");
 	}
+}
+
+void *
+iommu_alloc_contig(struct acpidmar_softc *sc, size_t size, paddr_t *paddr)
+{
+	caddr_t vaddr;
+	bus_dmamap_t map;
+	bus_dma_segment_t seg;
+	bus_dma_tag_t dmat;
+	int rc, nsegs;
+
+	rc = _bus_dmamap_create(dmat, size, 1, size, 0, 
+		BUS_DMA_NOWAIT, &map);
+	if (rc != 0) {
+		printf("hwdte_create fails\n");
+		return NULL;
+	}
+	rc = _bus_dmamem_alloc(dmat, size, 4, 0, &seg, 1,
+		&nsegs, BUS_DMA_NOWAIT | BUS_DMA_ZERO);
+	if (rc != 0) {
+		printf("hwdte alloc fails\n");
+		return NULL;
+	}
+	rc = _bus_dmamem_map(dmat, &seg, 1, size, &vaddr,
+		BUS_DMA_NOWAIT | BUS_DMA_COHERENT);
+	if (rc != 0) {
+		printf("hwdte map fails\n");
+		return NULL;
+	}
+	rc = _bus_dmamap_load_raw(dmat, map, &seg, 1, size, BUS_DMA_NOWAIT);
+	if (rc != 0) {
+		printf("hwdte load raw fails\n");
+		return NULL;
+	}
+	*paddr = map->dm_segs[0].ds_addr;
+	printf("hwdte: Got P:%lx V:%p\n", *paddr, vaddr);
+	return vaddr;
 }
 
 /* COMMON: Allocate a new memory page */
@@ -1645,7 +1685,7 @@ domain_map_device(struct domain *dom, int sid)
 			dte_set_valid(dte);
 			ivhd_flush_devtab(iommu, dom->did);
 			//ivhd_showit(iommu);
-			ivhd_showdte();
+			ivhd_showdte(iommu);
 		}
 		//ivhd_poll_events(iommu);
 		return;
@@ -2024,7 +2064,7 @@ void _dumppte(struct pte_entry *pte, int lvl, vaddr_t va)
 	}
 }
 
-void showpage(int sid, paddr_t paddr)
+void ivhd_showpage(struct iommu_softc *iommu, int sid, paddr_t paddr)
 {
 	struct domain *dom;
 	static int show = 0;
@@ -2036,14 +2076,14 @@ void showpage(int sid, paddr_t paddr)
 	if (!dom)
 		return;
 	printf("DTE: %.8x %.8x %.8x %.8x %.8x %.8x %.8x %.8x\n",
-		hwdte[sid].dw0,
-		hwdte[sid].dw1,
-		hwdte[sid].dw2,
-		hwdte[sid].dw3,
-		hwdte[sid].dw4,
-		hwdte[sid].dw5,
-		hwdte[sid].dw6,
-		hwdte[sid].dw7);
+		iommu->dte[sid].dw0,
+		iommu->dte[sid].dw1,
+		iommu->dte[sid].dw2,
+		iommu->dte[sid].dw3,
+		iommu->dte[sid].dw4,
+		iommu->dte[sid].dw5,
+		iommu->dte[sid].dw6,
+		iommu->dte[sid].dw7);
 	_dumppte(dom->pte, 3, 0);
 }
 
@@ -2070,7 +2110,7 @@ ivhd_show_event(struct iommu_softc *iommu, struct ivhd_event *evt, int head)
 		   evt->dw1 & EVT_RZ ? "reserved bit" : "invalid level",
 		   evt->dw1 & EVT_RW ? "write" : "read",
 		   evt->dw1 & EVT_I  ? "interrupt" : "memory");
-		ivhd_showdte();
+		ivhd_showdte(iommu);
 		break;
 	case IO_PAGE_FAULT: // ok
 		printf("io page fault dev=%s did=0x%.4x addr=0x%.16llx\n%s, %s, %s, %s, %s, %s\n",
@@ -2081,8 +2121,8 @@ ivhd_show_event(struct iommu_softc *iommu, struct ivhd_event *evt, int head)
 		   evt->dw1 & EVT_RW ? "write" : "read",
 		   evt->dw1 & EVT_PR ? "present" : "not present",
 		   evt->dw1 & EVT_I  ? "interrupt" : "memory");
-		ivhd_showdte();
-		showpage(sid, address);
+		ivhd_showdte(iommu);
+		ivhd_showpage(iommu, sid, address);
 		break;
 	case DEV_TAB_HARDWARE_ERROR: // ok
 		printf("device table hardware error dev=%s addr=0x%.16llx %s, %s, %s\n",
@@ -2090,7 +2130,7 @@ ivhd_show_event(struct iommu_softc *iommu, struct ivhd_event *evt, int head)
 		   evt->dw1 & EVT_TR ? "translation" : "transaction",
 		   evt->dw1 & EVT_RW ? "write" : "read",
 		   evt->dw1 & EVT_I  ? "interrupt" : "memory");
-		ivhd_showdte();
+		ivhd_showdte(iommu);
 		break;
 	case PAGE_TAB_HARDWARE_ERROR:
 		printf("page table hardware error dev=%s addr=0x%.16llx %s, %s, %s\n",
@@ -2098,7 +2138,7 @@ ivhd_show_event(struct iommu_softc *iommu, struct ivhd_event *evt, int head)
 		   evt->dw1 & EVT_TR ? "translation" : "transaction",
 		   evt->dw1 & EVT_RW ? "write" : "read",
 		   evt->dw1 & EVT_I  ? "interrupt" : "memory");
-		ivhd_showdte();
+		ivhd_showdte(iommu);
 		break;
 	case ILLEGAL_COMMAND_ERROR: // ok
 		printf("illegal command addr=0x%.16llx\n", address);
@@ -2121,7 +2161,7 @@ ivhd_show_event(struct iommu_softc *iommu, struct ivhd_event *evt, int head)
 		printf("unknown type=0x%.2x\n", type);
 		break;
 	}
-	//ivhd_showdte();
+	//ivhd_showdte(iommu);
 	/* Clear old event */
 	evt->dw0 = 0;
 	evt->dw1 = 0;
@@ -2283,18 +2323,19 @@ void ivhd_checkerr(struct iommu_softc *iommu)
 }
 
 /* AMD: Show Device Table Entry */
-void ivhd_showdte(void)
+void ivhd_showdte(struct iommu_softc *iommu)
 {
 	int i;
+	
 
 	for (i = 0; i < 65536; i++) {
-		if (hwdte[i].dw0) {
+		if (iommu->dte[i].dw0) {
 			printf("%.2x:%.2x.%x: %.8x %.8x %.8x %.8x %.8x %.8x %.8x %.8x\n",
 				i >> 8, (i >> 3) & 0x1F, i & 0x7,
-				hwdte[i].dw0, hwdte[i].dw1,
-				hwdte[i].dw2, hwdte[i].dw3,
-				hwdte[i].dw4, hwdte[i].dw5,
-				hwdte[i].dw6, hwdte[i].dw7);
+				iommu->dte[i].dw0, iommu->dte[i].dw1,
+				iommu->dte[i].dw2, iommu->dte[i].dw3,
+				iommu->dte[i].dw4, iommu->dte[i].dw5,
+				iommu->dte[i].dw6, iommu->dte[i].dw7);
 		}
 	}
 }
@@ -2387,9 +2428,9 @@ ivhd_iommu_init(struct acpidmar_softc *sc, struct iommu_softc *iommu,
 	/* Setup device table
 	 * 1 entry per source ID (bus:device:function - 64k entries)
 	 */
-	iommu->dte = hwdte;
-	pmap_extract(pmap_kernel(), (vaddr_t)iommu->dte, &paddr);
-	iommu_write_8(iommu, DEV_TAB_BASE_REG, (paddr & DEV_TAB_MASK) | DEV_TAB_LEN);
+	iommu->dte = sc->sc_hwdte;	
+	//pmap_extract(pmap_kernel(), (vaddr_t)iommu->dte, &paddr);
+	iommu_write_8(iommu, DEV_TAB_BASE_REG, (sc->sc_hwdtep & DEV_TAB_MASK) | DEV_TAB_LEN);
 
 	/* Enable IOMMU */
 	ov |= (CTL_IOMMUEN | CTL_EVENTLOGEN | CTL_CMDBUFEN | CTL_EVENTINTEN | CTL_COMWAITINTEN);
@@ -2565,6 +2606,10 @@ acpiivrs_init(struct acpidmar_softc *sc, struct acpi_ivrs *ivrs)
 {
 	union acpi_ivrs_entry *ie;
 	int off;
+	
+	if (!sc->sc_hwdte) {
+		sc->sc_hwdte = iommu_alloc_contig(sc, HWDTE_SIZE, &sc->sc_hwdtep);
+	}
 
 	domain_map_page = domain_map_page_amd;
 	printf("IVRS Version: %d\n", ivrs->hdr.revision);
