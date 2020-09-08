@@ -321,33 +321,6 @@ struct vppt {
 };
 TAILQ_HEAD(,vppt) vppts = TAILQ_HEAD_INITIALIZER(vppts);
 
-void
-vmm_mapintr(pci_chipset_tag_t pc, struct pci_attach_args *pa) {
-	int bus, dev, fun;
-	struct vppt *ppt;
-
-	TAILQ_FOREACH(ppt, &vppts, next) {
-		if (ppt->pc == pc && ppt->tag == pa->pa_tag)
-			return;
-	}
-
-	/* Add PCI device to list */
-	ppt = malloc(sizeof(*ppt), M_DEVBUF, M_ZERO | M_WAITOK);
-	if (!ppt)
-		return;
-	TAILQ_INSERT_TAIL(&vppts, ppt, next);
-
-	ppt->pc = pc;
-	ppt->tag = pa->pa_tag;
-	pci_decompose_tag(pc, pa->pa_tag, &bus, &dev, &fun);
-	printf("Check Interrupt: %d/%d/%d : %d\n", bus, dev, fun, pa->pa_intrpin);	
-	if (pci_intr_map_msi(pa, &ppt->ih) || pci_intr_map(pa, &ppt->ih)) {
-		printf("Couldn't map %d/%d/%d\n", bus, dev, fun);
-		return;
-	}
-	printf("Mapped %d/%d/%d intr %d/%d\n", bus, dev, fun, ppt->ih.line, ppt->ih.pin);
-}
-
 /* Issue PCI Read/Write to physical device */
 static int
 vm_pciio(struct vm_pciio *ptd)
@@ -452,34 +425,20 @@ vm_pio(struct vm_pio *pio)
 	return 0;
 }
 
-/* Device interrupt handler. Increase pending count */
-static int
-vmm_intr(void *arg)
-{
-	struct vppt *ppt = arg;
-
-	ppt->pending++;
-	return 1;
-}
+extern int vmmpci_pending(pcitag_t tag, uint32_t *pending);
 
 /* Get interrupt pending count for a device */
 static int
 vm_getintr(struct vm_ptdpci *ptd)
 {
-	pci_chipset_tag_t pc = NULL;
 	pcitag_t tag;
-	struct vppt *ppt;
 
-	tag = pci_make_tag(pc, ptd->bus, ptd->dev, ptd->func);
-	TAILQ_FOREACH(ppt, &vppts, next) {
-		if (ppt->tag == tag) {
-			ptd->pending = ppt->pending;
-		}
-	}
+	tag = pci_make_tag(NULL, ptd->bus, ptd->dev, ptd->func);
+	vmmpci_pending(tag, &ptd->pending);
 	return (0);
 }
 
-extern int vmmpciadd(pci_chipset_tag_t pc, pcitag_t tag);
+extern int vmmpci_add(pci_chipset_tag_t pc, pcitag_t tag);
 
 /* Get PCI/Bar info */
 static int
@@ -493,20 +452,14 @@ vm_getbar(struct vm_ptdpci *ptd)
 	int i, reg, did;
 	void *dom;
 	struct vm *vm;
-	struct vppt *ppt;
-	uint32_t id_reg;
 
 	/* Make sure this is a valid PCI device */
 	tag = pci_make_tag(pc, ptd->bus, ptd->dev, ptd->func);
-	id_reg = pci_conf_read(pc, tag, PCI_ID_REG);
-	printf("getbar: %d.%d.%d %x\n",
-		ptd->bus, ptd->dev, ptd->func, id_reg);
-	if (PCI_VENDOR(id_reg) == PCI_VENDOR_INVALID)
+	if (vmmpci_add(pc, tag) == 0) {
+		printf("Can't add device!! %d.%d.%d\n", ptd->bus, ptd->dev, ptd->func);
 		return ENODEV;
-	if (PCI_VENDOR(id_reg) == 0)
-		return ENODEV;
-
-	vmmpciadd(NULL, tag);
+	}
+	printf("getbar: %d.%d.%d\n", ptd->bus, ptd->dev, ptd->func);
 
 	/* Scan all BARs and get type/address/length */
 	memset(&ptd->barinfo, 0, sizeof(ptd->barinfo));
@@ -541,17 +494,6 @@ vm_getbar(struct vm_ptdpci *ptd)
 				   vm->vm_memranges[i].vmr_va,
 				   vm->vm_memranges[i].vmr_gpa,
 				   vm->vm_memranges[i].vmr_size);
-		}
-	}
-	/* Setup interrupt */
-	TAILQ_FOREACH(ppt, &vppts, next) {
-		if (ppt->tag == tag) {
-			if (!ppt->cookie) {
-				ppt->cookie = pci_intr_establish(ppt->pc, ppt->ih, IPL_BIO, vmm_intr, 
-				    ppt, "ppt");
-			}
-			printf("Establish intr : %p\n", ppt->cookie);
-			ppt->pending = 0;
 		}
 	}
 	return 0;

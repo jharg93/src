@@ -44,13 +44,34 @@
 
 #include <machine/vmmvar.h>
 
-int	vmmpcimatch(struct device *, void *, void *);
-void	vmmpciattach(struct device *, struct device *, void *);
+struct vmmpci_softc {
+	struct device 		sc_dev;
+	void			*sc_ih;
+
+	int			sc_domain;
+	pci_chipset_tag_t	sc_pc;
+	pcitag_t		sc_tag;
+
+	uint32_t      		pending;		// pending interrupt count
+};
+
+struct vmmpci_dev {
+	struct device	       *vp_dev;
+	int			vp_domain;
+	pci_chipset_tag_t	vp_pc;
+	pcitag_t		vp_tag;
+};
+
+int	vmmpci_match(struct device *, void *, void *);
+void	vmmpci_attach(struct device *, struct device *, void *);
 void	vmmpci_callback(struct device *);
 int	vmmpci_print(void *, const char *);
+int 	vmmpci_find(pci_chipset_tag_t pc, pcitag_t tag);
+int 	vmmpci_add(pci_chipset_tag_t pc, pcitag_t tag);
+int 	vmmpci_intr(void *arg);
 
 struct cfattach vmmpci_ca = {
-	sizeof(struct device), vmmpcimatch, vmmpciattach
+	sizeof(struct vmmpci_softc), vmmpci_match, vmmpci_attach
 };
 
 struct cfdriver vmmpci_cd = {
@@ -59,48 +80,51 @@ struct cfdriver vmmpci_cd = {
 
 #define MAXVMMPCI 4
 
-struct vmmpcidev {
-	int		  vp_valid;
-	pci_chipset_tag_t vp_pc;
-	pcitag_t	  vp_tag;
-} vmmpcis[MAXVMMPCI];
-
-int vmmpcifind(pci_chipset_tag_t pc, pcitag_t tag);
-int vmmpciadd(pci_chipset_tag_t pc, pcitag_t tag);
+struct vmmpci_dev vmmpcis[MAXVMMPCI];
 
 int
-vmmpcifind(pci_chipset_tag_t pc, pcitag_t tag)
+vmmpci_intr(void *arg)
+{
+	struct vmmpci_softc *sc = arg;
+
+	sc->pending++;
+	return 1;
+}
+
+int
+vmmpci_find(pci_chipset_tag_t pc, pcitag_t tag)
 {
 	int i;
 
 	for (i = 0; i < MAXVMMPCI; i++) {
-		if (vmmpcis[i].vp_valid && (vmmpcis[i].vp_pc == pc) && 
-		    (vmmpcis[i].vp_tag == tag))
+		if (vmmpcis[i].vp_dev &&
+		    vmmpcis[i].vp_pc == pc && 
+		    vmmpcis[i].vp_tag == tag)
 			return (1);
 	}
 	return (0);
 }
 
 int
-vmmpciadd(pci_chipset_tag_t pc, pcitag_t tag)
+vmmpci_add(pci_chipset_tag_t pc, pcitag_t tag)
 {
 	int i;
 	struct device *pd;
 	struct pci_softc *psc;
 
 	/* Check if we are already mapped */
-	if (vmmpcifind(pc, tag))
+	if (vmmpci_find(pc, tag))
 		return (1);
 
-	/* Find parent device */
-	pd = (struct device *)pci_find_bytag(0, tag);
-	if (pd == NULL)
-		return (0);
-
-	psc = (struct pci_softc *)pd->dv_parent;
 	for (i = 0; i < MAXVMMPCI; i++) {
-		if (vmmpcis[i].vp_valid == 0) {
-			vmmpcis[i].vp_valid = 1;
+		if (vmmpcis[i].vp_dev == 0) {
+			/* Find parent device */
+			pd = (struct device *)pci_find_bytag(0, tag);
+			if (pd == NULL)
+				return (0);
+			psc = (struct pci_softc *)pd->dv_parent;
+
+			vmmpcis[i].vp_dev = pd;
 			vmmpcis[i].vp_pc = pc;
 			vmmpcis[i].vp_tag = tag;
 
@@ -114,23 +138,52 @@ vmmpciadd(pci_chipset_tag_t pc, pcitag_t tag)
 }
 
 int
-vmmpcimatch(struct device *parent, void *match, void *aux)
+vmmpci_pending(pcitag_t tag, uint32_t *pending)
+{
+	struct vmmpci_softc *sc;
+
+	/* Are we mapped? */	
+	if (!vmmpci_find(NULL, tag))
+		return (0);
+	sc = (struct vmmpci_softc *)pci_find_bytag(0, tag);
+	if (sc == NULL)
+		return (0);
+	*pending = sc->pending;
+	return (1);		
+}
+
+int
+vmmpci_match(struct device *parent, void *match, void *aux)
 {
 	struct pci_attach_args *pa = aux;
 	int rc;
 
-	rc = vmmpcifind(pa->pa_pc, pa->pa_tag);
-	printf("PCI Attach VMM: %d.%d.%d = %d\n", pa->pa_bus, pa->pa_device, pa->pa_function, rc);
+	rc = vmmpci_find(pa->pa_pc, pa->pa_tag);
 	if (rc)
 		return (100);
 	return (0);
 }
 
 void
-vmmpciattach(struct device *parent, struct device *self, void *aux)
+vmmpci_attach(struct device *parent, struct device *self, void *aux)
 {
-	/*
-	 * Cannot attach isa bus now; must postpone for various reasons
-	 */
-	printf("vmmpci attach \n");
+	struct vmmpci_softc 	*sc = (struct vmmpci_softc *)self;
+	struct pci_attach_args 	*pa = aux;
+	pci_chipset_tag_t	pc  = pa->pa_pc;
+	pci_intr_handle_t	ih;
+
+	sc->sc_pc  = pc;
+	sc->sc_tag = pa->pa_tag;
+
+	/* Map our interrupt */
+	if (pci_intr_map_msi(pa, &ih) || pci_intr_map(pa, &ih)) {
+		printf(": couldn't map interrupt\n");
+		return;
+	}
+	sc->sc_ih = pci_intr_establish(pc, ih, IPL_BIO, vmmpci_intr, 
+			sc, sc->sc_dev.dv_xname);
+	if (sc->sc_ih == NULL) {
+		printf(": couldn't establish interrupt");
+		return;
+	}
 }
