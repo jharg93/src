@@ -620,7 +620,6 @@ struct vm_ptdpci {
 		uint32_t	type;
 		uint32_t	size;
 		uint64_t	addr;
-		void		*va;
 	} barinfo[MAXBAR];
 };
 

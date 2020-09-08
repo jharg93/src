@@ -121,7 +121,6 @@ void vmm_attach(struct device *, struct device *, void *);
 int vmmopen(dev_t, int, int, struct proc *);
 int vmmioctl(dev_t, u_long, caddr_t, int, struct proc *);
 int vmmclose(dev_t, int, int, struct proc *);
-paddr_t vmmmmap(dev_t, off_t, int);
 int vmm_start(void);
 int vmm_stop(void);
 size_t vm_create_check_mem_ranges(struct vm_create_params *);
@@ -779,13 +778,6 @@ vmmioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 	}
 
 	return (ret);
-}
-
-/* MMAP any address (TODO: fixme) for mapping BAR */
-paddr_t
-vmmmmap(dev_t dev, off_t off, int prot)
-{
-	return off;
 }
 
 /*

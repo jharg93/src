@@ -123,37 +123,6 @@ ptd_lookup(int devid)
 	return pci.pci_devices[devid].pd_cookie;
 }
 
-#if 0
-/* Map a MMIO Bar Physical address */
-static void *
-ptd_mapbar(int bar, uint64_t base, uint64_t size) {
-	uint8_t *va;
-
-	/* Don't map empty regions */
-	if (!base || !size)
-		return NULL;
-	size = (size + PAGE_MASK) & ~PAGE_MASK;
-	va = mmap(NULL, size, PROT_READ|PROT_WRITE, MAP_SHARED, env->vmd_fd, base & ~PAGE_MASK);
-	if (va == (void *)-1ULL) {
-		fprintf(stderr, "Unable to mmap bar: %.16llx/%.8llx\n",
-			base, size);
-		return NULL;
-	}
-	fprintf(stderr, "0x%.2x: Mapped bar: %.16llx/%.8llx to %p\n",
-		(bar * 4) + 0x10, base, size, va);
-	return va + (base & PAGE_MASK);
-}
-
-/* Unmap MMIO Bar */
-static void
-ptd_unmapbar(void *va, uint64_t size) {
-	if (va == NULL)
-		return;
-	size = (size + PAGE_MASK) & ~PAGE_MASK;
-	munmap(va, size);
-	fprintf(stderr, "unmapping bar: %p/%.8llx\n", va, size);
-}
-#endif
 
 /* Do Passthrough I/O port read/write */
 static void
@@ -267,27 +236,13 @@ pci_memh2(int dir, uint64_t base, uint32_t size, void *data, void *cookie)
 	uint8_t devid = PTD_DEV(cookie);
 	uint8_t barid = PTD_BAR(cookie);
 	uint64_t off;
-	uint8_t *va;
 	struct vm_ptdpci *pd;
 
 	pd = ptd_lookup(devid);
 	if (pd == NULL)
 		return -1;
 	off = base & (pd->barinfo[barid].size - 1);
-#if 1
 	ptd_pio(0, dir, off + pd->barinfo[barid].addr, size, data);
-#else
-	va = pd->barinfo[barid].va;
-	if (va == NULL) {
-		return -1;
-	}
-	if (dir == VEI_DIR_IN) {
-		io_copy(data, va + off, size);
-	}
-	else {
-		io_copy(va + off, data, size);
-	}
-#endif
 	return 0;
 }
 
@@ -585,9 +540,6 @@ pci_add_pthru(int bus, int dev, int fun)
 		else if (PCI_MAPREG_TYPE(type) == PCI_MAPREG_TYPE_MEM) {
 			pci_add_bar(pd->id, type, pd->barinfo[i].size, 
 				    ptd_mmiobar, PTD_DEVID(pd->id, i));
-#if 0
-			pd->barinfo[i].va = ptd_mapbar(i, pd->barinfo[i].addr, pd->barinfo[i].size);
-#endif
 			/* Skip empty BAR for 64-bit */
 			if (type == (PCI_MAPREG_TYPE_MEM | PCI_MAPREG_MEM_TYPE_64BIT))
 				i++;
