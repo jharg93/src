@@ -83,6 +83,4 @@ struct pci_vga {
 #define	PCIOCREADMASK	_IOWR('p', 8, struct pci_io)
 #define	PCIOCGETVPD	_IOWR('p', 9, struct pci_vpd_req)
 
-#define PCIOCUNBIND	_IOWR('p', 9, struct pcisel)
-
 #endif /* !_SYS_PCIIO_H_ */
