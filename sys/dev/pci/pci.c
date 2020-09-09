@@ -684,14 +684,17 @@ pci_get_ext_capability(pci_chipset_tag_t pc, pcitag_t tag, int capid,
 	pcireg_t reg;
 	unsigned int ofs;
 
-	/* Make sure we support PCI Express device */
+	/* Make sure this is a PCI Express device. */
 	if (pci_get_capability(pc, tag, PCI_CAP_PCIEXPRESS, NULL, NULL) == 0)
 		return (0);
-	/* Scan PCI Express capabilities */
+
+	/* Scan PCI Express extended capabilities. */
 	ofs = PCI_PCIE_ECAP;
 	while (ofs != 0) {
-		if (ofs < PCI_PCIE_ECAP)
-			return (0);
+#ifdef DIAGNOSTIC
+		if ((ofs & 3) || (ofs < PCI_PCIE_ECAP))
+			panic("pci_get_ext_capability");
+#endif
 		reg = pci_conf_read(pc, tag, ofs);
 		if (PCI_PCIE_ECAP_ID(reg) == capid) {
 			if (offset)
@@ -702,6 +705,7 @@ pci_get_ext_capability(pci_chipset_tag_t pc, pcitag_t tag, int capid,
 		}
 		ofs = PCI_PCIE_ECAP_NEXT(reg);
 	}
+
 	return (0);
 }
 
