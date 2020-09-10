@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm.c,v 1.273 2020/04/19 19:29:52 krw Exp $	*/
+/*	$OpenBSD: vmm.c,v 1.274 2020/09/10 17:03:03 mpi Exp $	*/
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
  *
