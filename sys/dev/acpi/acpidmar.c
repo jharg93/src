@@ -57,7 +57,13 @@
 #include "acpidmar.h"
 #include "amd_iommu.h"
 
+//#define IOMMU_DEBUG
+
+#ifdef IOMMU_DEBUG
+#define dprintf(x...) printf(x)
+#else
 #define dprintf(x...)
+#endif
 
 #ifdef DDB
 int	acpidmar_ddb = 0;
@@ -216,7 +222,6 @@ struct iommu_softc {
 	void			*evt_tbl;
 	paddr_t			cmd_tblp;
 	paddr_t			evt_tblp;
-	uint64_t		wv[128] __aligned(4096);
 };
 
 static inline int iommu_bad(struct iommu_softc *sc)
@@ -321,7 +326,7 @@ void iommu_set_rtaddr(struct iommu_softc *, paddr_t);
 
 const char *dmar_bdf(int);
 
-void *iommu_alloc_contig(struct acpidmar_softc *sc, size_t size, paddr_t *paddr);
+void *iommu_alloc_hwdte(struct acpidmar_softc *sc, size_t size, paddr_t *paddr);
 
 const char *
 dmar_bdf(int sid)
@@ -363,7 +368,7 @@ void domain_map_check(struct domain *dom);
 
 struct pte_entry *pte_lvl(struct iommu_softc *iommu, struct pte_entry *npte, vaddr_t va, int shift, uint64_t flags);
 int  ivhd_poll_events(struct iommu_softc *iommu);
-void ivhd_showit(struct iommu_softc *);
+void ivhd_showreg(struct iommu_softc *);
 void ivhd_showdte(struct iommu_softc *);
 void ivhd_showcmd(struct iommu_softc *);
 
@@ -867,7 +872,7 @@ iommu_set_rtaddr(struct iommu_softc *iommu, paddr_t paddr)
 }
 
 void *
-iommu_alloc_contig(struct acpidmar_softc *sc, size_t size, paddr_t *paddr)
+iommu_alloc_hwdte(struct acpidmar_softc *sc, size_t size, paddr_t *paddr)
 {
 	caddr_t vaddr;
 	bus_dmamap_t map;
@@ -899,7 +904,6 @@ iommu_alloc_contig(struct acpidmar_softc *sc, size_t size, paddr_t *paddr)
 		return NULL;
 	}
 	*paddr = map->dm_segs[0].ds_addr;
-	printf("hwdte: Got P:%lx V:%p\n", *paddr, vaddr);
 	return vaddr;
 }
 
@@ -1500,7 +1504,7 @@ domain_create(struct iommu_softc *iommu, int did)
 	struct domain	*dom;
 	int gaw;
 
-	printf("iommu%d: create domain: %.4x\n", iommu->id, did);
+	dprintf("iommu%d: create domain: %.4x\n", iommu->id, did);
 	dom = malloc(sizeof(*dom), M_DEVBUF, M_ZERO | M_WAITOK);
 	dom->did = did;
 	dom->iommu = iommu;
@@ -1543,11 +1547,12 @@ domain_create(struct iommu_softc *iommu, int did)
 	return dom;
 }
 
-void domain_add_device(struct domain *dom, int sid)
+void
+domain_add_device(struct domain *dom, int sid)
 {	
 	struct domain_dev *ddev;
 	
-	printf("add %s to iommu%d.%.4x\n", dmar_bdf(sid), dom->iommu->id, dom->did);
+	dprintf("add %s to iommu%d.%.4x\n", dmar_bdf(sid), dom->iommu->id, dom->did);
 	ddev = malloc(sizeof(*ddev), M_DEVBUF, M_ZERO | M_WAITOK);
 	ddev->sid = sid;
 	TAILQ_INSERT_TAIL(&dom->devices, ddev, link);
@@ -1555,7 +1560,8 @@ void domain_add_device(struct domain *dom, int sid)
 	/* Should set context entry here?? */
 }
 
-void domain_remove_device(struct domain *dom, int sid)
+void
+domain_remove_device(struct domain *dom, int sid)
 {
 	struct domain_dev *ddev, *tmp;
 
@@ -1627,7 +1633,8 @@ domain_lookup(struct acpidmar_softc *sc, int segment, int sid)
 }
 
 /* Map Guest Pages into IOMMU */
-void  _iommu_map(void *dom, vaddr_t va, bus_addr_t gpa, bus_size_t len)
+void
+_iommu_map(void *dom, vaddr_t va, bus_addr_t gpa, bus_size_t len)
 {
 	bus_size_t i;
 	paddr_t hpa;
@@ -1635,7 +1642,7 @@ void  _iommu_map(void *dom, vaddr_t va, bus_addr_t gpa, bus_size_t len)
 	if (dom == NULL) {
 		return;
 	}
-	printf("Mapping dma: %lx = %lx/%lx\n", va, gpa, len);
+	dprintf("Mapping dma: %lx = %lx/%lx\n", va, gpa, len);
 	for (i = 0; i < len; i += PAGE_SIZE) {
 		hpa = 0;
 		pmap_extract(curproc->p_vmspace->vm_map.pmap, va, &hpa);
@@ -1646,7 +1653,8 @@ void  _iommu_map(void *dom, vaddr_t va, bus_addr_t gpa, bus_size_t len)
 }
 
 /* Find IOMMU for a given PCI device */
-void *_iommu_domain(int segment, int bus, int dev, int func, int *id)
+void
+*_iommu_domain(int segment, int bus, int dev, int func, int *id)
 {
 	struct domain *dom;
 
@@ -1657,7 +1665,8 @@ void *_iommu_domain(int segment, int bus, int dev, int func, int *id)
 	return dom;
 }
 
-void domain_map_device(struct domain *dom, int sid);
+void
+domain_map_device(struct domain *dom, int sid);
 
 void
 domain_map_device(struct domain *dom, int sid)
@@ -1677,15 +1686,17 @@ domain_map_device(struct domain *dom, int sid)
 		struct ivhd_dte *dte = &iommu->dte[sid];
 		if (!dte->dw0) {
 			/* Setup Device Table Entry: bus.devfn */
-			printf("@@@ PCI Attach: %.4x[%s] %.4x\n", sid, dmar_bdf(sid), dom->did);
+			dprintf("@@@ PCI Attach: %.4x[%s] %.4x\n", sid, dmar_bdf(sid), dom->did);
 			dte_set_host_page_table_root_ptr(dte, dom->ptep);
 			dte_set_domain(dte, dom->did);
 			dte_set_mode(dte, 3);  // Set 4 level PTE
 			dte_set_tv(dte);
 			dte_set_valid(dte);
 			ivhd_flush_devtab(iommu, dom->did);
-			//ivhd_showit(iommu);
+#ifdef IOMMU_DEBUG
+			//ivhd_showreg(iommu);
 			ivhd_showdte(iommu);
+#endif
 		}
 		//ivhd_poll_events(iommu);
 		return;
@@ -2004,16 +2015,18 @@ acpidmar_init(struct acpidmar_softc *sc, struct acpi_dmar *dmar)
 /*=====================================================
  * AMD Vi
  *=====================================================*/
-void acpiivrs_ivhd(struct acpidmar_softc *, struct acpi_ivhd *);
-int acpiivrs_iommu_match(struct pci_attach_args *);
-int ivhd_iommu_init(struct acpidmar_softc *, struct iommu_softc *,
-	struct acpi_ivhd *);
-void iommu_ivhd_add(struct iommu_softc *, int, int, int);
-int _ivhd_issue_command(struct iommu_softc *, const struct ivhd_command *);
-void ivhd_show_event(struct iommu_softc *, struct ivhd_event *evt, int);
-int ivhd_issue_command(struct iommu_softc *, const struct ivhd_command *, int);
-int ivhd_invalidate_domain(struct iommu_softc *, int);
-void ivhd_intr_map(struct iommu_softc *, int);
+void 	acpiivrs_ivhd(struct acpidmar_softc *, struct acpi_ivhd *);
+int 	acpiivrs_iommu_match(struct pci_attach_args *);
+int 	ivhd_iommu_init(struct acpidmar_softc *, struct iommu_softc *,
+		struct acpi_ivhd *);
+void 	iommu_ivhd_add(struct iommu_softc *, int, int, int);
+int 	_ivhd_issue_command(struct iommu_softc *, const struct ivhd_command *);
+void 	ivhd_show_event(struct iommu_softc *, struct ivhd_event *evt, int);
+int 	ivhd_issue_command(struct iommu_softc *, const struct ivhd_command *, int);
+int 	ivhd_invalidate_domain(struct iommu_softc *, int);
+void 	ivhd_intr_map(struct iommu_softc *, int);
+void 	ivhd_checkerr(struct iommu_softc *iommu);
+int	acpiivhd_intr(void *);
 
 int
 acpiivhd_intr(void *ctx)
@@ -2041,7 +2054,8 @@ ivhd_intr_map(struct iommu_softc *iommu, int devid) {
 	printf("amd iommu intr: %p\n", iommu->intr);
 }
 
-void _dumppte(struct pte_entry *pte, int lvl, vaddr_t va)
+void
+_dumppte(struct pte_entry *pte, int lvl, vaddr_t va)
 {
 	char *pfx[] = { "    ", "   ", "  ", " ", "" };
 	uint64_t i, sh;
@@ -2064,7 +2078,8 @@ void _dumppte(struct pte_entry *pte, int lvl, vaddr_t va)
 	}
 }
 
-void ivhd_showpage(struct iommu_softc *iommu, int sid, paddr_t paddr)
+void
+ivhd_showpage(struct iommu_softc *iommu, int sid, paddr_t paddr)
 {
 	struct domain *dom;
 	static int show = 0;
@@ -2243,7 +2258,7 @@ ivhd_issue_command(struct iommu_softc *iommu, const struct ivhd_command *cmd, in
 			DELAY(10 << i);
 		}
 		if (mi < i && mi != IVHD_MAXDELAY) {
-			printf("maxdel: %d\n", i);
+			dprintf("maxdel: %d\n", i);
 			mi = i;
 		}
 		if (i == IVHD_MAXDELAY) {
@@ -2287,7 +2302,8 @@ int ivhd_invalidate_domain(struct iommu_softc *iommu, int did)
 }
 
 /* AMD: Display Registers */
-void ivhd_showit(struct iommu_softc *iommu)
+void
+ivhd_showreg(struct iommu_softc *iommu)
 {
 	printf("---- dt:%.16llx cmd:%.16llx evt:%.16llx ctl:%.16llx sts:%.16llx\n",
 		iommu_read_8(iommu, DEV_TAB_BASE_REG),
@@ -2303,8 +2319,8 @@ void ivhd_showit(struct iommu_softc *iommu)
 }
 
 /* AMD: Generate Errors to test event handler */
-void ivhd_checkerr(struct iommu_softc *iommu);
-void ivhd_checkerr(struct iommu_softc *iommu)
+void
+ivhd_checkerr(struct iommu_softc *iommu)
 {
 	struct ivhd_command cmd = { -1, -1, -1, -1 };
 
@@ -2323,7 +2339,8 @@ void ivhd_checkerr(struct iommu_softc *iommu)
 }
 
 /* AMD: Show Device Table Entry */
-void ivhd_showdte(struct iommu_softc *iommu)
+void
+ivhd_showdte(struct iommu_softc *iommu)
 {
 	int i;
 	
@@ -2341,7 +2358,8 @@ void ivhd_showdte(struct iommu_softc *iommu)
 }
 
 /* AMD: Show command entries */
-void ivhd_showcmd(struct iommu_softc *iommu)
+void
+ivhd_showcmd(struct iommu_softc *iommu)
 {
 	struct ivhd_command *ihd;
 	paddr_t phd;
@@ -2433,7 +2451,7 @@ ivhd_iommu_init(struct acpidmar_softc *sc, struct iommu_softc *iommu,
 	iommu_write_8(iommu, DEV_TAB_BASE_REG, (sc->sc_hwdtep & DEV_TAB_MASK) | DEV_TAB_LEN);
 
 	/* Enable IOMMU */
-	ov |= (CTL_IOMMUEN | CTL_EVENTLOGEN | CTL_CMDBUFEN | CTL_EVENTINTEN | CTL_COMWAITINTEN);
+	ov |= (CTL_IOMMUEN | CTL_EVENTLOGEN | CTL_CMDBUFEN | CTL_EVENTINTEN);
 	if (ivhd->flags & IVHD_COHERENT)
 		ov |= CTL_COHERENT;
 	if (ivhd->flags & IVHD_HTTUNEN)
@@ -2445,7 +2463,7 @@ ivhd_iommu_init(struct acpidmar_softc *sc, struct iommu_softc *iommu,
 	if (ivhd->flags & IVHD_ISOC)
 		ov |= CTL_ISOC;
 	ov &= ~(CTL_INVTIMEOUT_MASK << CTL_INVTIMEOUT_SHIFT);
-	ov |=  (CTL_INVTIMEOUT_1MS  << CTL_INVTIMEOUT_SHIFT);
+	ov |=  (CTL_INVTIMEOUT_10MS << CTL_INVTIMEOUT_SHIFT);
 	iommu_write_8(iommu, IOMMUCTL_REG, ov);
 
 	ivhd_invalidate_iommu_all(iommu);
@@ -2608,7 +2626,7 @@ acpiivrs_init(struct acpidmar_softc *sc, struct acpi_ivrs *ivrs)
 	int off;
 	
 	if (!sc->sc_hwdte) {
-		sc->sc_hwdte = iommu_alloc_contig(sc, HWDTE_SIZE, &sc->sc_hwdtep);
+		sc->sc_hwdte = iommu_alloc_hwdte(sc, HWDTE_SIZE, &sc->sc_hwdtep);
 	}
 
 	domain_map_page = domain_map_page_amd;
