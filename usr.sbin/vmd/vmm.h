@@ -22,4 +22,3 @@ void vcpu_assert_pic_irq(uint32_t, uint32_t, int);
 void vcpu_deassert_pic_irq(uint32_t, uint32_t, int);
 void set_return_data(struct vm_exit *, uint32_t);
 void get_input_data(struct vm_exit *, uint32_t *);
-
