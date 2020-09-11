@@ -48,10 +48,9 @@ const uint8_t pci_pic_irqs[PCI_MAX_PIC_IRQS] = {3, 5, 6, 7, 9, 10, 11, 12,
 #define PTD_BAR(x)       ((uintptr_t)(x) & 0xFF)
 #define PTD_DEV(x)       ((uintptr_t)(x) >> 8)
 
-void io_copy(void *, const void *, int);
 int mem_chkint(void);
 
-int pci_memh2(int, uint64_t, uint32_t, void *, void *);
+int ptd_mmiohandler(int, uint64_t, uint32_t, void *, void *);
 
 #define PAGE_MASK 0xFFF
 
@@ -212,26 +211,12 @@ mem_chkint(void)
 	return intr;
 }
 
-void
-io_copy(void *dest, const void *src, int size) {
-	memcpy(dest, src, size);
-	return;
-	if (size == 1)
-		*(uint8_t *)dest = *(const uint8_t *)src;
-	else if (size == 2)
-		*(uint16_t *)dest = *(const uint16_t *)src;
-	else if (size == 4)
-		*(uint32_t *)dest = *(const uint32_t *)src;
-	else if (size == 8)
-		*(uint64_t *)dest = *(const uint64_t *)src;
-}
-
 /*
  * PCI Passthrough MMIO handler
  * USe memory mapped address of physical bar
  */
 int
-pci_memh2(int dir, uint64_t base, uint32_t size, void *data, void *cookie)
+ptd_mmiohandler(int dir, uint64_t base, uint32_t size, void *data, void *cookie)
 {
 	uint8_t devid = PTD_DEV(cookie);
 	uint8_t barid = PTD_BAR(cookie);
@@ -445,8 +430,6 @@ pci_add_device(uint8_t *id, uint16_t vid, uint16_t pid, uint8_t class,
 
 	return (0);
 }
-
-#define PCIOCUNBIND	_IOWR('p', 9, struct pcisel)
 
 /* Callback for I/O ports. Map to new I/O port and do it */
 static int
@@ -731,10 +714,10 @@ pci_handle_data_reg(struct vm_run_params *vrp)
 			else {
 				vei->vei.vei_data |= (barval & ~PCI_MAPREG_MEM_ADDR_MASK);
 
-				/* Remove old BAR value from page fault callback, insert new value */
+				/* PTD: Remove old BAR value from page fault callback, insert new value */
 				unregister_mem(barval & PCI_MAPREG_MEM_ADDR_MASK);
 				register_mem(vei->vei.vei_data & PCI_MAPREG_MEM_ADDR_MASK,
-				    barsize, pci_memh2, PTD_DEVID(d, baridx));	
+				    barsize, ptd_mmiohandler, PTD_DEVID(d, baridx));
 			}
 		}
 

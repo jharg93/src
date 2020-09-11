@@ -2463,7 +2463,7 @@ ivhd_iommu_init(struct acpidmar_softc *sc, struct iommu_softc *iommu,
 	if (ivhd->flags & IVHD_ISOC)
 		ov |= CTL_ISOC;
 	ov &= ~(CTL_INVTIMEOUT_MASK << CTL_INVTIMEOUT_SHIFT);
-	ov |=  (CTL_INVTIMEOUT_10MS << CTL_INVTIMEOUT_SHIFT);
+	ov |=  (CTL_INVTIMEOUT_1MS << CTL_INVTIMEOUT_SHIFT);
 	iommu_write_8(iommu, IOMMUCTL_REG, ov);
 
 	ivhd_invalidate_iommu_all(iommu);
