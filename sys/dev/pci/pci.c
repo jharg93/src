@@ -1162,7 +1162,7 @@ pci_disable_legacy_vga(struct device *dev)
 	}
 }
 
-struct pci_dev *
+struct device *
 pci_find_bytag(int domain, pcitag_t tag)
 {
 	struct pci_softc *pci;

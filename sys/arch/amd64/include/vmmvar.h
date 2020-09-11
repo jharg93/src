@@ -608,6 +608,7 @@ struct vm_pio {
 
 /* Passthrough PCI device structure */
 struct vm_ptdpci {
+	uint8_t		seg;
 	uint8_t		bus;
 	uint8_t		dev;
 	uint8_t		func;

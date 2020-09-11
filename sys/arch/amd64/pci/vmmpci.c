@@ -35,7 +35,6 @@
 #include <sys/device.h>
 
 #include <machine/bus.h>
-#include <dev/isa/isavar.h>
 
 #include <dev/pci/pcivar.h>
 #include <dev/pci/pcireg.h>
@@ -43,6 +42,7 @@
 #include <dev/pci/pcidevs.h>
 
 #include <machine/vmmvar.h>
+#include <machine/vmmpci.h>
 
 struct vmmpci_softc {
 	struct device 		sc_dev;
@@ -55,10 +55,12 @@ struct vmmpci_softc {
 	uint32_t      		pending;		// pending interrupt count
 };
 
+#define VP_VALID	0x80000000
+
+/* Keep track of registered devices */
 struct vmmpci_dev {
-	struct device	       *vp_dev;
+	int			vp_flags;
 	int			vp_domain;
-	pci_chipset_tag_t	vp_pc;
 	pcitag_t		vp_tag;
 };
 
@@ -66,8 +68,6 @@ int	vmmpci_match(struct device *, void *, void *);
 void	vmmpci_attach(struct device *, struct device *, void *);
 void	vmmpci_callback(struct device *);
 int	vmmpci_print(void *, const char *);
-int 	vmmpci_find(pci_chipset_tag_t pc, pcitag_t tag);
-int 	vmmpci_add(pci_chipset_tag_t pc, pcitag_t tag);
 int 	vmmpci_intr(void *arg);
 
 struct cfattach vmmpci_ca = {
@@ -82,6 +82,7 @@ struct cfdriver vmmpci_cd = {
 
 struct vmmpci_dev vmmpcis[MAXVMMPCI];
 
+/* Interrupt handler. Increase pending count for ioctl.  TODO:better method? */
 int
 vmmpci_intr(void *arg)
 {
@@ -91,45 +92,68 @@ vmmpci_intr(void *arg)
 	return 1;
 }
 
+/* Get number of pending interrupts for a device */
 int
-vmmpci_find(pci_chipset_tag_t pc, pcitag_t tag)
+vmmpci_pending(int domain, pcitag_t tag, uint32_t *pending)
+{
+	struct vmmpci_softc *sc;
+
+	/* Are we mapped? */	
+	if (!vmmpci_find(domain, tag))
+		return (0);
+
+	/* If we are mapped, the device should be a VMMPCI */
+	sc = (struct vmmpci_softc *)pci_find_bytag(domain, tag);
+	if (sc == NULL)
+		return (0);
+
+	/* Return current pending count */
+	*pending = sc->pending;
+	return (1);		
+}
+
+/* Check if this PCI device has been registered */
+int
+vmmpci_find(int domain, pcitag_t tag)
 {
 	int i;
 
 	for (i = 0; i < MAXVMMPCI; i++) {
-		if (vmmpcis[i].vp_dev &&
-		    vmmpcis[i].vp_pc == pc && 
+		if ((vmmpcis[i].vp_flags & VP_VALID) &&
+		    vmmpcis[i].vp_domain == domain &&
 		    vmmpcis[i].vp_tag == tag)
 			return (1);
 	}
 	return (0);
 }
 
+/* Add a PCI device to valid passthrough list and reprobe */
 int
-vmmpci_add(pci_chipset_tag_t pc, pcitag_t tag)
+vmmpci_add(int domain, pcitag_t tag, int flags)
 {
-	int i;
-	struct device *pd;
 	struct pci_softc *psc;
+	struct device *pd;
+	int i;
 
 	/* Check if we are already mapped */
-	if (vmmpci_find(pc, tag))
+	if (vmmpci_find(domain, tag))
 		return (1);
 
 	for (i = 0; i < MAXVMMPCI; i++) {
-		if (vmmpcis[i].vp_dev == 0) {
+		if ((vmmpcis[i].vp_flags & VP_VALID) == 0) {
 			/* Find parent device */
-			pd = (struct device *)pci_find_bytag(0, tag);
+			pd = (struct device *)pci_find_bytag(domain, tag);
 			if (pd == NULL)
 				return (0);
-			psc = (struct pci_softc *)pd->dv_parent;
 
-			vmmpcis[i].vp_dev = pd;
-			vmmpcis[i].vp_pc = pc;
+			vmmpcis[i].vp_domain = domain;
 			vmmpcis[i].vp_tag = tag;
+			vmmpcis[i].vp_flags = VP_VALID | flags;
 
 			/* detach the old device, reattach */
+			psc = (struct pci_softc *)pd->dv_parent;
 			config_detach(pd, 0);
+
 			pci_probe_device(psc, tag, NULL, NULL);
 			return (1);
 		}
@@ -138,27 +162,13 @@ vmmpci_add(pci_chipset_tag_t pc, pcitag_t tag)
 }
 
 int
-vmmpci_pending(pcitag_t tag, uint32_t *pending)
-{
-	struct vmmpci_softc *sc;
-
-	/* Are we mapped? */	
-	if (!vmmpci_find(NULL, tag))
-		return (0);
-	sc = (struct vmmpci_softc *)pci_find_bytag(0, tag);
-	if (sc == NULL)
-		return (0);
-	*pending = sc->pending;
-	return (1);		
-}
-
-int
 vmmpci_match(struct device *parent, void *match, void *aux)
 {
 	struct pci_attach_args *pa = aux;
 	int rc;
 
-	rc = vmmpci_find(pa->pa_pc, pa->pa_tag);
+	/* Check if device is registered, claim it */
+	rc = vmmpci_find(pa->pa_domain, pa->pa_tag);
 	if (rc)
 		return (100);
 	return (0);
@@ -175,7 +185,7 @@ vmmpci_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_pc  = pc;
 	sc->sc_tag = pa->pa_tag;
 
-	/* Map our interrupt */
+	/* Map our interrupt (TODO: what about devices with no interrupt?) */
 	if (pci_intr_map_msi(pa, &ih) || pci_intr_map(pa, &ih)) {
 		printf(": couldn't map interrupt\n");
 		return;

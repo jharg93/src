@@ -45,6 +45,8 @@
 #include <dev/pci/pcivar.h>
 #include <dev/pci/pcidevs.h>
 
+#include <machine/vmmpci.h>
+
 /* #define VMM_DEBUG */
 
 void *l1tf_flush_region;
@@ -381,8 +383,6 @@ vm_pio(struct vm_pio *pio)
 	return 0;
 }
 
-extern int vmmpci_pending(pcitag_t tag, uint32_t *pending);
-
 /* Get interrupt pending count for a device */
 static int
 vm_getintr(struct vm_ptdpci *ptd)
@@ -390,11 +390,9 @@ vm_getintr(struct vm_ptdpci *ptd)
 	pcitag_t tag;
 
 	tag = pci_make_tag(NULL, ptd->bus, ptd->dev, ptd->func);
-	vmmpci_pending(tag, &ptd->pending);
+	vmmpci_pending(ptd->seg, tag, &ptd->pending);
 	return (0);
 }
-
-extern int vmmpci_add(pci_chipset_tag_t pc, pcitag_t tag);
 
 /* Get PCI/Bar info */
 static int
@@ -411,7 +409,7 @@ vm_getbar(struct vm_ptdpci *ptd)
 
 	/* Make sure this is a valid PCI device */
 	tag = pci_make_tag(pc, ptd->bus, ptd->dev, ptd->func);
-	if (vmmpci_add(pc, tag) == 0) {
+	if (vmmpci_add(ptd->seg, tag, 0) == 0) {
 		printf("Can't add device!! %d.%d.%d\n", ptd->bus, ptd->dev, ptd->func);
 		return ENODEV;
 	}
