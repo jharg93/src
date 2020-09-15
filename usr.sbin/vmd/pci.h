@@ -27,11 +27,6 @@
 
 #define PCI_MAX_PIC_IRQS	10
 
-typedef int (*pci_cs_fn_t)(int dir, uint8_t reg, uint8_t sz, uint32_t *data, void *cookie);
-typedef int (*pci_iobar_fn_t)(int dir, uint16_t reg, uint32_t *data, uint8_t *,
-    void *, uint8_t);
-typedef int (*pci_mmiobar_fn_t)(int dir, uint32_t ofs, uint32_t *data);
-
 #define PTD_VALID 0x01
 
 typedef int (*iocb_t)(int, uint64_t, uint32_t, void *, void *);
@@ -47,6 +42,11 @@ struct iohandler {
 void register_mem(uint64_t base, uint32_t len, iocb_t handler, void *cookie);
 void unregister_mem(uint64_t base);
 int mem_handler(int dir, uint64_t addr, uint32_t size, void *data);
+
+typedef int (*pci_cs_fn_t)(int dir, uint8_t reg, uint32_t *data);
+typedef int (*pci_iobar_fn_t)(int dir, uint16_t reg, uint32_t *data, uint8_t *,
+    void *, uint8_t);
+typedef int (*pci_mmiobar_fn_t)(int dir, uint32_t ofs, uint32_t *data);
 
 struct pci_dev {
 	union {
@@ -103,6 +103,7 @@ void pci_handle_address_reg(struct vm_run_params *);
 void pci_handle_data_reg(struct vm_run_params *);
 uint8_t pci_handle_io(struct vm_run_params *);
 void pci_init(void);
+void pci_add_pthru(int, int, int);
 int pci_add_device(uint8_t *, uint16_t, uint16_t, uint8_t, uint8_t, uint16_t,
     uint16_t, uint8_t, pci_cs_fn_t, void *);
 int pci_add_bar(uint8_t, uint32_t, uint32_t, void *, void *);
@@ -110,4 +111,3 @@ int pci_set_bar_fn(uint8_t, uint8_t, void *, void *);
 uint8_t pci_get_dev_irq(uint8_t);
 int pci_dump(int);
 int pci_restore(int);
-void pci_add_pthru(int, int, int);

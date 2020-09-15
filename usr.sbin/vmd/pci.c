@@ -680,7 +680,7 @@ pci_handle_data_reg(struct vm_run_params *vrp)
 
 	csfunc = pci.pci_devices[d].pd_csfunc;
 	if (csfunc != NULL) {
-		ret = csfunc(vei->vei.vei_dir, o, sz, &vei->vei.vei_data, pci.pci_devices[d].pd_cookie);
+		ret = csfunc(vei->vei.vei_dir, (o / 4), &vei->vei.vei_data);
 		if (ret)
 			log_warnx("cfg space access function failed for "
 			    "pci device %d", d);
