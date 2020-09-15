@@ -1,4 +1,4 @@
-/*	$OpenBSD: acpireg.h,v 1.45 2019/08/28 22:39:09 kettenis Exp $	*/
+/*	$OpenBSD: acpireg.h,v 1.46 2020/09/15 13:43:40 jordan Exp $	*/
 /*
  * Copyright (c) 2005 Thorsten Lockert <tholo@sigmasoft.com>
  * Copyright (c) 2005 Marco Peereboom <marco@openbsd.org>
