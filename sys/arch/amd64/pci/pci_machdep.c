@@ -90,7 +90,7 @@
 #endif
 
 #include "acpi.h"
-#if NACPI > 0
+#if NACPIDMAR > 0
 #include <dev/acpi/acpidmar.h>
 #endif
 
@@ -802,14 +802,14 @@ pci_init_extents(void)
 	}
 }
 
+#if NACPIDMAR > 0
 int
 pci_probe_device_hook(pci_chipset_tag_t pc, struct pci_attach_args *pa)
 {
-#if NACPI > 0
 	acpidmar_pci_hook(pc, pa);
-#endif
 	return 0;
 }
+#endif
 
 #if NACPI > 0
 void acpi_pci_match(struct device *, struct pci_attach_args *);

@@ -260,7 +260,8 @@ void		acpidmar_attach(struct device *, struct device *, void *);
 struct domain   *acpidmar_pci_attach(struct acpidmar_softc *, int, int, int);
 
 struct cfattach acpidmar_ca = {
-	sizeof(struct acpidmar_softc), acpidmar_match, acpidmar_attach,
+	sizeof(struct acpidmar_softc), acpidmar_match, acpidmar_attach, NULL,
+	acpidmar_activate
 };
 
 struct cfdriver acpidmar_cd = {
@@ -2686,7 +2687,6 @@ acpidmar_activate(struct device *self, int act)
 	if (sc == NULL) {
 		return (0);
 	}
-
 	switch (act) {
 	case DVACT_RESUME:
 		TAILQ_FOREACH(iommu, &sc->sc_drhds, link) {
@@ -2725,12 +2725,6 @@ acpidmar_activate(struct device *self, int act)
 		break;
 	}
 	return (0);
-}
-
-void
-acpidmar_sw(int act)
-{
-	acpidmar_activate((struct device *)acpidmar_sc, act);
 }
 
 int

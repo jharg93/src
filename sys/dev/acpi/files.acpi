@@ -73,7 +73,7 @@ file	dev/acpi/acpiprt.c		acpiprt needs-flag
 # DMAR device
 device	acpidmar
 attach	acpidmar at acpi
-file	dev/acpi/acpidmar.c		acpidmar
+file	dev/acpi/acpidmar.c		acpidmar needs-flag
 
 # Docking station
 device	acpidock
