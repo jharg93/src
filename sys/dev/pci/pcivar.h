@@ -284,5 +284,7 @@ const struct pci_quirkdata *
 	pci_lookup_quirkdata(pci_vendor_id_t, pci_product_id_t);
 void	pciagp_set_pchb(struct pci_attach_args *);
 
+struct device *pci_find_bytag(int, pcitag_t);
+
 #endif /* _KERNEL */
 #endif /* _DEV_PCI_PCIVAR_H_ */
