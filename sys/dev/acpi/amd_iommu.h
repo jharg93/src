@@ -40,7 +40,7 @@
 #define  EFR_GLXSUP_SHIFT	14
 #define  EFR_GLXSUP_MASK	0x3
 #define  EFR_SMIFSUP_SHIFT	16
-#define  EFR_SMIFSUP_MASK	0x3        
+#define  EFR_SMIFSUP_MASK	0x3
 #define  EFR_SMIFRC_SHIFT	18
 #define  EFR_SMIFRC_MASK	0x7
 #define  EFR_GAMSUP_SHIFT	21
@@ -63,8 +63,8 @@
 #define  CTL_EVENTLOGEN		(1L << 2)
 #define  CTL_EVENTINTEN		(1L << 3)
 #define  CTL_COMWAITINTEN	(1L << 4)
-#define  CTL_INVTIMEOUT_SHIFT 	5
-#define  CTL_INVTIMEOUT_MASK  	0x7
+#define  CTL_INVTIMEOUT_SHIFT	5
+#define  CTL_INVTIMEOUT_MASK	0x7
 #define  CTL_INVTIMEOUT_NONE	0
 #define  CTL_INVTIMEOUT_1MS     1
 #define  CTL_INVTIMEOUT_10MS    2
@@ -117,7 +117,7 @@
 
 /*========================
  * DEVICE TABLE ENTRY
- * Contains mapping of bus-device-function 
+ * Contains mapping of bus-device-function
  *
  *  0       Valid (V)
  *  1       Translation Valid (TV)
@@ -159,22 +159,22 @@ struct ivhd_dte {
 
 #define HWDTE_SIZE (65536 * sizeof(struct ivhd_dte))
 
-#define DTE_V			(1L << 0)			// dw0
-#define DTE_TV			(1L << 1)			// dw0
-#define DTE_LEVEL_SHIFT		9				// dw0
-#define DTE_LEVEL_MASK		0x7				// dw0
-#define DTE_HPTRP_MASK		0x000FFFFFFFFFF000LL		// dw0,1
+#define DTE_V			(1L << 0)			/* dw0 */
+#define DTE_TV			(1L << 1)			/* dw0 */
+#define DTE_LEVEL_SHIFT		9				/* dw0 */
+#define DTE_LEVEL_MASK		0x7				/* dw0 */
+#define DTE_HPTRP_MASK		0x000FFFFFFFFFF000LL		/* dw0,1 */
 
-#define DTE_PPR			(1L << 20)			// dw1
-#define DTE_GPRP		(1L << 21)			// dw1
-#define DTE_GIOV		(1L << 22)			// dw1
-#define DTE_GV			(1L << 23)			// dw1
-#define DTE_IR			(1L << 29)			// dw1
-#define DTE_IW			(1L << 30)			// dw1
+#define DTE_PPR			(1L << 20)			/* dw1 */
+#define DTE_GPRP		(1L << 21)			/* dw1 */
+#define DTE_GIOV		(1L << 22)			/* dw1 */
+#define DTE_GV			(1L << 23)			/* dw1 */
+#define DTE_IR			(1L << 29)			/* dw1 */
+#define DTE_IW			(1L << 30)			/* dw1 */
 
-#define DTE_DID_MASK		0xFFFF				// dw2
+#define DTE_DID_MASK		0xFFFF				/* dw2 */
 
-#define DTE_IV			(1L << 0)			// dw3
+#define DTE_IV			(1L << 0)			/* dw3 */
 #define DTE_SE			(1L << 1)
 #define DTE_SA			(1L << 2)
 #define DTE_INTTABLEN_SHIFT	1
@@ -312,18 +312,18 @@ enum {
 struct ivhd_event {
 	uint32_t dw0;
 	uint32_t dw1;
-	uint32_t dw2;  			// address.lo
-	uint32_t dw3;				// address.hi
+	uint32_t dw2;
+	uint32_t dw3;
 } __packed;
 
-#define EVT_TYPE_SHIFT		28       // dw1.0xF0000000
+#define EVT_TYPE_SHIFT		28
 #define EVT_TYPE_MASK		0xF
-#define EVT_SID_SHIFT		0        // dw0.0x0000FFFF
+#define EVT_SID_SHIFT		0
 #define EVT_SID_MASK		0xFFFF
 #define EVT_DID_SHIFT		0
-#define EVT_DID_MASK		0xFFFF   // dw1.0x0000FFFF
-#define EVT_FLAG_SHIFT  	16
-#define EVT_FLAG_MASK   	0xFFF    // dw1.0x0FFF0000
+#define EVT_DID_MASK		0xFFFF
+#define EVT_FLAG_SHIFT		16
+#define EVT_FLAG_MASK		0xFFF
 
 /* IOMMU Fault reasons */
 enum {

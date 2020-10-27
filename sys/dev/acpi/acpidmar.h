@@ -17,6 +17,8 @@
 #ifndef _DEV_ACPI_DMARREG_H_
 #define _DEV_ACPI_DMARREG_H_
 
+/*#define IOMMU_DEBUG*/
+
 #define VTD_STRIDE_MASK 0x1FF
 #define VTD_STRIDE_SIZE 9
 #define VTD_PAGE_SIZE   4096
@@ -429,7 +431,7 @@ struct fault_entry
 /* PDPE Level entry */
 
 /* ----------------------------------------------------------------
- * 5555555444444444333333333222222222111111111000000000------------ 
+ * 5555555444444444333333333222222222111111111000000000------------
  * [PML4 ->] PDPE.1GB
  * [PML4 ->] PDPE.PDE -> PDE.2MB
  * [PML4 ->] PDPE.PDE -> PDE -> PTE
